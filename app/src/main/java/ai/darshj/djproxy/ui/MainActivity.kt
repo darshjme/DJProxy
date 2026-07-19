@@ -16,6 +16,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import ai.darshj.djproxy.ui.theme.DJProxyTheme
 import ai.darshj.djproxy.vpn.DjVpnService
+import ai.darshj.djproxy.vpn.FeatureRegistry
 import ai.darshj.djproxy.vpn.LogBus
 
 /**
@@ -95,6 +96,19 @@ class MainActivity : ComponentActivity() {
             bound = false
         }
         super.onDestroy()
+    }
+
+    /**
+     * The user typically grants the Developer-Options "mock location app" permission by leaving
+     * this activity (into system Settings) and coming back — refresh the location lane's
+     * capability right here so [SettingsScreen]'s "Granted" status flips the moment the app
+     * regains focus, on top of its own periodic poll. Wrapped so a missing/faulty location lane
+     * can never crash the activity lifecycle (mirrors the runCatching invariant every core→lane
+     * seam call already uses).
+     */
+    override fun onResume() {
+        super.onResume()
+        runCatching { FeatureRegistry.locationController?.refreshCapability(this) }
     }
 
     private fun requestNotificationPermissionIfNeeded() {

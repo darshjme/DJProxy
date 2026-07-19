@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -7,6 +8,21 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- location lane (DESIGN_V3 §5): publishing a mock GPS fix that matches the proxy exit geo.
+         NOTE: the mock-location test-provider API (addTestProvider/setTestProviderLocation, Fused
+         setMockMode) is gated by the Developer-Options "mock location app" app-op, NOT by the
+         ACCESS_*_LOCATION runtime permissions — and nothing in the app reads the real device
+         location — so those dangerous grants are deliberately NOT declared (Play-review + privacy). -->
+
+    <!-- hotspot lane (DESIGN_V3 §6): discovering the hotspot/LAN interface IP to bind LanShareServer,
+         and (API 33+) enumerating nearby Wi-Fi without also requiring location permission. The app
+         never toggles Wi-Fi/tethering, so CHANGE_WIFI_STATE is intentionally omitted. -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission
+        android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="33" />
 
     <application
         android:name=".DjProxyApp"
@@ -55,6 +71,34 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Proxy tunnel packet engine" />
         </service>
+
+        <!--
+          Feature-lane wiring seam (DESIGN_V3 §9.1). Core defines FeatureRegistry holders; each
+          feature lane ships its own androidx.startup Initializer (a *Registrar class in its own
+          package) that sets one holder / adds one settings panel at process start, with zero edits
+          to any core file. compat is the single writer of this manifest, so it is the one place
+          these Initializers are registered as <meta-data> under androidx.startup's own provider.
+          tools:node="merge" lets the androidx.startup library's own manifest (which declares the
+          <provider> itself) merge with these app-contributed entries instead of colliding with it.
+          If a lane's Registrar class does not exist yet (mid-build), androidx.startup simply will
+          not find it at runtime — it does not fail the whole app; each lane is expected to ship the
+          matching class in the package below.
+        -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="ai.darshj.djproxy.location.LocationRegistrar"
+                android:value="androidx.startup" />
+            <meta-data
+                android:name="ai.darshj.djproxy.hotspot.HotspotRegistrar"
+                android:value="androidx.startup" />
+            <meta-data
+                android:name="ai.darshj.djproxy.diag.DiagnosticsRegistrar"
+                android:value="androidx.startup" />
+        </provider>
 
     </application>
 </manifest>

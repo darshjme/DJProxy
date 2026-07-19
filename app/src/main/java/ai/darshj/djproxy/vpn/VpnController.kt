@@ -84,8 +84,13 @@ object VpnRuntime {
     @Volatile
     var currentConfig: ProxyConfig? = null
 
+    /** Last advisory health snapshot; read by the diagnostics lane for its report (§8). */
     @Volatile
-    var lastLeakReport: LeakCheckReport? = null
+    var lastHealthReport: HealthReport? = null
+
+    /** Exit IP observed by the last successful pre-flight; surfaced to the location seam (§10.9). */
+    @Volatile
+    var lastValidatedExitIp: String? = null
 
     fun update(transform: (VpnState) -> VpnState) {
         _state.value = transform(_state.value)
@@ -124,8 +129,10 @@ class VpnControllerImpl(private val appContext: Context) : VpnController {
         result as ValidationResult.Success
 
         // Validation passed: publish the config to the in-process holder (NOT an Intent extra, so
-        // the password never crosses system_server) and hand off to the service.
+        // the password never crosses system_server) and hand off to the service. Remember the exit
+        // IP so the service can hand it to the location seam once CONNECTED.
         VpnRuntime.currentConfig = config
+        VpnRuntime.lastValidatedExitIp = result.exitIp
         VpnRuntime.update { it.copy(stage = VpnStage.CONNECTING, error = null) }
         startService(DjVpnService.ACTION_CONNECT)
 

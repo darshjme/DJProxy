@@ -4,6 +4,7 @@ import android.app.Application
 import ai.darshj.djproxy.proxy.LocalSocksServer
 import ai.darshj.djproxy.proxy.PreflightValidator
 import ai.darshj.djproxy.proxy.ProxyDialer
+import ai.darshj.djproxy.vpn.CrashCatcher
 import ai.darshj.djproxy.vpn.DnsInterceptor
 import ai.darshj.djproxy.vpn.LoopbackProxy
 import ai.darshj.djproxy.vpn.TunConfig
@@ -26,6 +27,9 @@ class DjProxyApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // Global safety net FIRST (§4.1): any uncaught throwable on any thread is captured for the
+        // diagnostic report + routed to the CriticalFailureSink, then delegated to the OS handler.
+        CrashCatcher.install(this)
         wireDependencies()
     }
 
@@ -41,7 +45,7 @@ class DjProxyApp : Application() {
         // to the in-tun sentinel locally (the OS resolver's TCP fallback for truncated answers) via
         // the same tunnelled DnsInterceptor, so large/truncated records resolve instead of failing.
         VpnDependencies.loopbackProxyFactory = { config, protector ->
-            val dns = DnsInterceptor(ProxyDialer(config, protector), config.dnsServer)
+            val dns = DnsInterceptor.create(config, ProxyDialer(config, protector))
             val server = LocalSocksServer(
                 config = config,
                 protector = protector,

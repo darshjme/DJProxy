@@ -6,10 +6,12 @@ import ai.darshj.djproxy.core.ProxyConfig
 import ai.darshj.djproxy.core.ProxyParser
 import ai.darshj.djproxy.proxy.ProxyError
 import ai.darshj.djproxy.proxy.ValidationResult
+import ai.darshj.djproxy.vpn.FeatureRegistry
 import ai.darshj.djproxy.vpn.LogEvent
 import ai.darshj.djproxy.vpn.VpnController
 import ai.darshj.djproxy.vpn.VpnState
 import ai.darshj.djproxy.vpn.LogBus
+import ai.darshj.djproxy.vpn.seams.CriticalFailure
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -126,5 +128,24 @@ class ProxyViewModel : ViewModel() {
 
     fun dismissValidationError() {
         _uiState.value = _uiState.value.copy(validationError = null)
+    }
+
+    /**
+     * User-initiated "Send report" from the inline error card. Routes the current
+     * [ProxyError] through the same [ai.darshj.djproxy.vpn.seams.CriticalFailureSink] seam core
+     * uses for crashes/engine-death (§9.4) — the diagnostics lane (if attached) decides how to
+     * turn this into a mailto report. This call is always wrapped by [FeatureRegistry.reportCritical]
+     * (runCatching) so a missing/faulty diagnostics lane can never throw into the UI. A no-op if
+     * there is no current error or no diagnostics lane attached.
+     */
+    fun sendErrorReport() {
+        val error = _uiState.value.validationError ?: return
+        FeatureRegistry.reportCritical(
+            CriticalFailure(
+                category = CriticalFailure.Category.BRINGUP_FAILED,
+                reason = "${error.message} — ${error.hint}",
+            ),
+        )
+        LogBus.i("UI", "User requested a diagnostic report for: ${error.message}")
     }
 }

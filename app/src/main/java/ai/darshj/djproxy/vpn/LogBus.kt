@@ -34,6 +34,15 @@ object LogBus {
 
     fun log(level: LogLevel, tag: String, message: String) {
         _events.tryEmit(LogEvent(System.currentTimeMillis(), level, tag, message))
+        // Mirror to logcat so the tunnel is diagnosable over adb. Never carries the password
+        // (producers keep secrets out of messages, per this file's contract).
+        val t = "djproxy/$tag"
+        when (level) {
+            LogLevel.DEBUG -> android.util.Log.d(t, message)
+            LogLevel.INFO -> android.util.Log.i(t, message)
+            LogLevel.WARN -> android.util.Log.w(t, message)
+            LogLevel.ERROR -> android.util.Log.e(t, message)
+        }
     }
 
     fun d(tag: String, message: String) = log(LogLevel.DEBUG, tag, message)

@@ -20,9 +20,7 @@ import ai.darshj.djproxy.core.ProxyConfig
 import ai.darshj.djproxy.engine.EngineState
 import ai.darshj.djproxy.proxy.ProxyError
 import ai.darshj.djproxy.proxy.SocketProtector
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
+import ai.darshj.djproxy.vpn.seams.CriticalFailure
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.io.FileDescriptor
@@ -32,13 +30,22 @@ import java.io.FileDescriptor
  * proxy with every leak closed by construction. It owns the tun, the routes, the single
  * VpnService.protect() call site, the loopback SOCKS front, and the native engine sidecar.
  *
- * Bring-up is strictly validate-before-up (the controller validates first; this service is only
- * ever started on a genuine success) and additionally gated on the on-device leak self-test:
- * it will NOT report CONNECTED until [LeakCheckReport.allPass] is true.
+ * v3 CONNECTED criterion (§2.1): the tunnel is declared CONNECTED as soon as the native engine is
+ * Running AND a real in-tun TCP probe ([ConnectivityProbe]) succeeds — the honest end-to-end
+ * data-path check. The former leak self-test is GONE from the critical path: IPv6/UDP/DNS leak
+ * checks now run AFTER connect as advisory indicators ([HealthMonitor]) that never throw, never tear
+ * down, and never block CONNECTED. Leaks are still closed by construction (routes + DNS sentinel);
+ * what changed is that observing a residual leak is advisory, not a gate.
  */
 class DjVpnService : VpnService() {
 
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    // Crash-proof scope (§4.2/§4.3): SupervisorJob + a CoroutineExceptionHandler that logs, reports
+    // to the diagnostics sink, and fails the tunnel CLOSED instead of propagating to the process.
+    private val serviceScope = Coro.safeScope(
+        name = "vpn-service",
+        reportCategory = CriticalFailure.Category.UNCAUGHT,
+        onFatal = { failClosedNow(ProxyError.Io("service fault: ${it.message ?: it.javaClass.simpleName}")) },
+    )
 
     /**
      * THE single protect() seam. This is the only place `VpnService.protect(...)` is ever called;
@@ -55,6 +62,8 @@ class DjVpnService : VpnService() {
     private var router: TunRouter? = null
     private var watchdog: EngineWatchdog? = null
     private var stats: StatsCollector? = null
+    private var healthMonitor: HealthMonitor? = null
+    private var dnsInterceptor: DnsInterceptor? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
     @Volatile private var upJob: Boolean = false
@@ -94,6 +103,16 @@ class DjVpnService : VpnService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // The whole dispatch is guarded: a fault here (e.g. startForeground) must degrade, never crash.
+        return runCatching { dispatch(intent, startId) }.getOrElse {
+            LogBus.e(TAG, "onStartCommand fault: ${it.message}")
+            FeatureRegistry.reportCritical(CriticalFailure(CriticalFailure.Category.BRINGUP_FAILED, "onStartCommand: ${it.message}"))
+            runCatching { stopSelf() }
+            START_NOT_STICKY
+        }
+    }
+
+    private fun dispatch(intent: Intent?, startId: Int): Int {
         when (intent?.action) {
             ACTION_CONNECT -> {
                 enterForeground("Connecting…")
@@ -163,21 +182,32 @@ class DjVpnService : VpnService() {
                 scope = serviceScope,
                 engine = engine!!,
                 reconnect = { reconnectEngine() },
-                onGiveUp = { serviceScope.launch { failClosed(ProxyError.Io("engine unrecoverable")) } },
+                onGiveUp = {
+                    FeatureRegistry.reportCritical(
+                        CriticalFailure(CriticalFailure.Category.ENGINE_DEATH, "engine unrecoverable after retries"),
+                    )
+                    failClosedNow(ProxyError.Io("engine unrecoverable"))
+                },
             )
 
             // 4) Start the router bridging real-tun <-> engine, enforcing the leak policy.
             startRouter(config)
 
-            // 5) Gate CONNECTED on the on-device leak self-test.
-            LogBus.i(TAG, "running leak self-test")
-            val report = LeakSelfTest(config).run()
-            VpnRuntime.lastLeakReport = report
-            if (!report.allPass) {
-                throw LeakException(report)
+            // 5) NEW CONNECTED criterion (§2.1): engine Running + a real in-tun TCP round-trip. This
+            //    proves the WHOLE data path (tun→router→engine→loopback→dialer→proxy). Leak posture is
+            //    NOT part of this decision — there is no LeakException hard-gate anymore.
+            if (engine?.state?.value != EngineState.Running) {
+                throw IllegalStateException("engine not running (${engine?.state?.value})")
             }
+            LogBus.i(TAG, "running in-tun connectivity probe")
+            val probe = ConnectivityProbe(knownExitIp = VpnRuntime.lastValidatedExitIp).run()
+            if (probe is ProbeOutcome.Fail) {
+                // A DATA-PATH failure (not a leak failure): fail closed, as today.
+                throw BringUpException(probe.error)
+            }
+            val exitIp = (probe as ProbeOutcome.Ok).exitIp
 
-            // 6) Self-test passed: hand ownership to the watchdog, start supervision + stats, and
+            // 6) Data path proven: hand ownership to the watchdog, start supervision + stats, and
             //    only now begin treating engine faults as recoverable reconnects.
             connected = true
             watchdog?.start()
@@ -188,18 +218,29 @@ class DjVpnService : VpnService() {
                     stage = VpnStage.CONNECTED,
                     proxyRedacted = config.redacted(),
                     connectedSinceMs = System.currentTimeMillis(),
-                    leakChecks = report,
+                    health = null, // populated by the first HealthMonitor pass
                     error = null,
                 )
             }
             updateNotification("Connected · ${config.redacted()}")
-            LogBus.i(TAG, "CONNECTED — device-wide tunnel up, leaks closed")
+            LogBus.i(TAG, "CONNECTED — device-wide tunnel up (probe ok, latency=${probe.latencyMs}ms)")
+
+            // 7) ADVISORY health pass (§2.2): starts leak indicators + DNS-fallback. NEVER gates/tears down.
+            dnsInterceptor?.let { healthMonitor = HealthMonitor(it).also { hm -> hm.start() } }
+
+            // 8) Location seam (§10 step 9): hand the exit IP to the location lane if attached. Wrapped
+            //    so a buggy feature lane can never break a successful bring-up (§9.7 invariant 1).
+            runCatching {
+                val controller = FeatureRegistry.locationController
+                if (controller != null) serviceScope.launch { runCatching { controller.onProxyConnected(exitIp) } }
+            }
         } catch (e: Throwable) {
             val err = mapError(e)
             LogBus.e(TAG, "bring-up failed: ${err.message}")
+            FeatureRegistry.reportCritical(CriticalFailure(CriticalFailure.Category.BRINGUP_FAILED, err.message))
             teardown("bring-up failed")
             VpnRuntime.update {
-                it.copy(stage = VpnStage.ERROR, error = err, connectedSinceMs = 0, leakChecks = VpnRuntime.lastLeakReport)
+                it.copy(stage = VpnStage.ERROR, error = err, connectedSinceMs = 0, health = VpnRuntime.lastHealthReport)
             }
             stopSelf()
         } finally {
@@ -238,7 +279,9 @@ class DjVpnService : VpnService() {
 
     private fun startRouter(config: ProxyConfig) {
         val dialer = VpnDependencies.dialerFactory(config, VpnRuntime.protector)
-        val dns = DnsInterceptor(dialer, config.dnsServer)
+        // Pluggable DNS (§3): default = composite DoH:443 ▸ DoT:853 ▸ TCP:53, all resolving at the
+        // proxy exit. Built once and reused across reconnects so the sticky-fallback head survives.
+        val dns = dnsInterceptor ?: DnsInterceptor.create(config, dialer).also { dnsInterceptor = it }
         router = TunRouter(
             tun = tunPfd!!,
             engineEnd = routerEnd!!,
@@ -296,18 +339,26 @@ class DjVpnService : VpnService() {
         stopSelf()
     }
 
-    private suspend fun failClosed(error: ProxyError) {
+    /** Synchronous fail-closed; safe to call from any thread (teardown is synchronized). */
+    private fun failClosedNow(error: ProxyError) {
         teardown("fail-closed: ${error.message}")
-        VpnRuntime.update { it.copy(stage = VpnStage.ERROR, error = error, connectedSinceMs = 0) }
-        stopSelf()
+        VpnRuntime.update {
+            it.copy(stage = VpnStage.ERROR, error = error, connectedSinceMs = 0, health = VpnRuntime.lastHealthReport)
+        }
+        runCatching { stopSelf() }
     }
+
+    private suspend fun failClosed(error: ProxyError) = failClosedNow(error)
 
     // ---- teardown ------------------------------------------------------------------------------
 
     private fun teardown(reason: String) {
         LogBus.i(TAG, "teardown: $reason")
         connected = false
+        // Notify the location seam BEFORE we drop state; wrapped so a lane fault never breaks teardown.
+        runCatching { FeatureRegistry.locationController?.onProxyDisconnected() }
         synchronized(plumbLock) {
+            runCatching { healthMonitor?.stop() }; healthMonitor = null
             runCatching { stats?.stop() }; stats = null
             runCatching { watchdog?.stop() }; watchdog = null
             runCatching { router?.stop() }; router = null
@@ -315,6 +366,7 @@ class DjVpnService : VpnService() {
             runCatching { loopback?.stop() }; loopback = null
             closeQuietly(routerEnd); routerEnd = null
             runCatching { tunPfd?.close() }; tunPfd = null
+            dnsInterceptor = null
         }
         releaseWakeLock()
         runCatching { stopForegroundCompat() }
@@ -340,13 +392,12 @@ class DjVpnService : VpnService() {
     // ---- errors --------------------------------------------------------------------------------
 
     private fun mapError(e: Throwable): ProxyError = when (e) {
-        is LeakException -> ProxyError.ProbeFailed(
-            "leak self-test failed (v6=${e.report.ipv6Unreachable}, udp=${e.report.udpBlocked}, dns=${e.report.dnsTunnelled})",
-        )
+        is BringUpException -> e.error
         else -> ProxyError.Io(e.message ?: e.javaClass.simpleName)
     }
 
-    private class LeakException(val report: LeakCheckReport) : Exception("leak self-test failed")
+    /** A data-path bring-up failure (e.g. the in-tun connectivity probe did not complete). */
+    private class BringUpException(val error: ProxyError) : Exception(error.message)
 
     // ---- foreground + notification -------------------------------------------------------------
 

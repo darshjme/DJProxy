@@ -13,15 +13,25 @@ android {
 
     defaultConfig {
         applicationId = "ai.darshj.djproxy"
-        minSdk = 24
+        // v3 compat matrix (DESIGN_V3 §7.1): one universal APK from a rooted Kindle Fire on API 21
+        // up to the newest retail Android. Every API-gated call in the codebase is guarded down to
+        // 21 (see DjVpnService/EngineService/TunBuilder/VpnController Build.VERSION.SDK_INT checks);
+        // CredentialStore degrades to session-only credentials below API 23 (no AndroidKeyStore GCM).
+        minSdk = 21
         targetSdk = 35
         versionCode = 1
         versionName = "1.0.0"
 
-        // libdjproxy-engine.so ships for real devices; x86_64 is a separate emulator build.
+        // Ship all four ABIs so one universal APK runs on physical ARM phones AND on
+        // x86/x86_64 Android emulators (LDPlayer, BlueStacks, Android Studio AVD, Genymotion).
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
         }
+
+        // Diagnostic-report recipient (see MailIntentFactory). This official build ships the owner's
+        // inbox; a third-party fork of this MIT source should blank it (or set its own) so a rebranded
+        // binary never silently mails reports to the original owner. Overridable per build type.
+        buildConfigField("String", "DIAG_RECIPIENT", "\"darshjme@gmail.com\"")
     }
 
     // Native transport (engine lane): ndk-build over the vendored hev sources + JNI glue.
@@ -72,12 +82,21 @@ android {
     buildFeatures {
         compose = true
         aidl = true
+        buildConfig = true
     }
     testOptions {
         unitTests.isReturnDefaultValues = true
     }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+    }
+
+    lint {
+        // False positive for a Compose-only app: registerForActivityResult is invoked on a
+        // ComponentActivity (activity-compose 1.9.3), which correctly implements ActivityResultCaller.
+        // This app has NO androidx.fragment usage, so the "upgrade Fragment to >=1.3.0" requirement
+        // does not apply. Every other lint check stays fatal for release (checkReleaseBuilds default).
+        disable += "InvalidFragmentVersionForActivityResult"
     }
 }
 
@@ -91,6 +110,18 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-service:2.8.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
+    // Feature-lane wiring seam (DESIGN_V3 §9.1): each feature lane (location/hotspot/diagnostics)
+    // ships an androidx.startup Initializer; compat is the single writer that registers them as
+    // <meta-data> under InitializationProvider in AndroidManifest.xml. Core/ui never depend on this.
+    implementation("androidx.startup:startup-runtime:1.2.0")
+
+    // Optional dependency for the location lane's T1 mock-location tier (DESIGN_V3 §5.3):
+    // FusedLocationProviderClient.setMockMode, guarded at runtime by
+    // CapabilityDetector.hasPlayServices() and degraded to plain LocationManager when Play services
+    // are absent (de-Googled ROMs, most emulators without a Google image). compat owns the Gradle
+    // file so it is the one place this optional dep is declared; location lane never edits build files.
+    implementation("com.google.android.gms:play-services-location:21.3.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")

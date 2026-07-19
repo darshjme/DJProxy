@@ -29,16 +29,37 @@ enum class VpnStage {
     ERROR,
 }
 
+/** Tri-state health of one advisory indicator (§2.3). UNKNOWN = the probe could not decide. */
+enum class Health { OK, DEGRADED, UNKNOWN }
+
 /**
- * Result of the on-device leak self-test that runs before the service declares CONNECTED.
- * Every field must be true or the tunnel is not allowed to report "connected".
+ * Advisory post-connect health (§2.3). This is NOT a gate: nothing here can block, tear down, or
+ * throw. It is rendered by the UI as non-blocking chips. `OK` means "behaving as the leak model
+ * intends" (v6 blackholed, UDP dropped, DNS resolving through the proxy).
  */
+data class HealthReport(
+    val ipv6: Health = Health.UNKNOWN,          // OK = blackholed as intended
+    val udp: Health = Health.UNKNOWN,           // OK = dropped as intended
+    val dns: Health = Health.UNKNOWN,           // OK = resolved through proxy
+    val activeDnsStrategy: String = "",         // "DoH:443" | "DoT:853" | "TCP:53"
+    val emulatorBypassSuspected: Boolean = false,
+    val checkedAtMs: Long = 0,
+) {
+    val hasWarnings: Boolean
+        get() = ipv6 == Health.DEGRADED || udp == Health.DEGRADED ||
+            dns == Health.DEGRADED || emulatorBypassSuspected
+    // NOTE: there is NO allPass gate anymore. Nothing blocks CONNECTED on this.
+}
+
+/**
+ * DEPRECATED back-compat shim for the v2 leak self-test report. In v3 the leak checks are advisory
+ * ([HealthReport]) and never gate CONNECTED; this type is retained only so a not-yet-migrated UI
+ * surface keeps compiling. Core no longer populates [VpnState.leakChecks] (it is always null now).
+ */
+@Deprecated("Replaced by HealthReport (advisory). Migrate UI to VpnState.health.")
 data class LeakCheckReport(
-    /** An IPv6 literal / AAAA destination was provably unreachable (::/0 blackholed in-tun). */
     val ipv6Unreachable: Boolean = false,
-    /** A STUN/QUIC UDP send was dropped (WebRTC srflx gathering killed). */
     val udpBlocked: Boolean = false,
-    /** DNS was answered over the tunnel; the device resolver was never used. */
     val dnsTunnelled: Boolean = false,
     val checkedAtMs: Long = 0,
 ) {
@@ -58,7 +79,10 @@ data class VpnState(
     val stats: TunnelStats = TunnelStats.EMPTY,
     /** Set only in ERROR (and echoed on a failed apply). */
     val error: ProxyError? = null,
-    /** Populated once the self-test runs; the transition to CONNECTED requires [LeakCheckReport.allPass]. */
+    /** Advisory post-connect health; null until the first HealthMonitor pass. Never gates CONNECTED. */
+    val health: HealthReport? = null,
+    /** DEPRECATED: always null in v3 (leak checks are advisory now). Kept for UI back-compat only. */
+    @Deprecated("Use health (HealthReport).")
     val leakChecks: LeakCheckReport? = null,
 ) {
     val isUp: Boolean get() = stage == VpnStage.CONNECTED || stage == VpnStage.RECONNECTING

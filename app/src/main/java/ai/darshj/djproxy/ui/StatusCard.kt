@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,7 +27,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import ai.darshj.djproxy.ui.components.GlassSurface
 import ai.darshj.djproxy.ui.theme.DjColors
-import ai.darshj.djproxy.vpn.LeakCheckReport
 import ai.darshj.djproxy.vpn.TunnelStats
 import ai.darshj.djproxy.vpn.VpnStage
 import ai.darshj.djproxy.vpn.VpnState
@@ -65,7 +63,8 @@ private fun formatUptime(sinceMs: Long, nowMs: Long): String {
 
 /**
  * Live status card: stage badge, redacted proxy, ticking uptime, byte/connection counters, and
- * the leak self-test chips. Renders continuously off [VpnState] — nothing here owns state.
+ * (once connected) the advisory health chips. Renders continuously off [VpnState] — nothing here
+ * owns state. Health is advisory-only (§2): a DEGRADED chip never hides this card or the stage.
  */
 @Composable
 fun StatusCard(state: VpnState, modifier: Modifier = Modifier) {
@@ -113,9 +112,9 @@ fun StatusCard(state: VpnState, modifier: Modifier = Modifier) {
             Spacer(Modifier.height(16.dp))
             StatsGrid(state.stats)
 
-            state.leakChecks?.let { report ->
+            if (state.stage == VpnStage.CONNECTED || state.stage == VpnStage.RECONNECTING) {
                 Spacer(Modifier.height(16.dp))
-                LeakChips(report)
+                AdvisoryChipsRow(health = state.health)
             }
         }
     }
@@ -139,32 +138,3 @@ private fun StatCell(label: String, value: String) {
     }
 }
 
-@Composable
-private fun LeakChips(report: LeakCheckReport) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        LeakChip("IPv6 blocked", report.ipv6Unreachable)
-        LeakChip("UDP blocked", report.udpBlocked)
-        LeakChip("DNS tunnelled", report.dnsTunnelled)
-    }
-}
-
-@Composable
-private fun LeakChip(label: String, pass: Boolean) {
-    val color = if (pass) DjColors.Emerald else DjColors.Rose
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(color.copy(alpha = 0.16f))
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-    ) {
-        Spacer(
-            modifier = Modifier
-                .size(6.dp)
-                .clip(CircleShape)
-                .background(color),
-        )
-        Spacer(Modifier.width(6.dp))
-        Text(label, style = MaterialTheme.typography.labelSmall, color = color)
-    }
-}

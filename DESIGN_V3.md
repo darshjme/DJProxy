@@ -73,10 +73,17 @@ The service transitions `CONNECTING → CONNECTED` iff **both**:
 
 1. `RemoteEngine.state == EngineState.Running` (native loop up, socketpair plumbed), **and**
 2. `ConnectivityProbe.run()` returns success — a **real TCP round-trip through the tun**:
-   open an *un-protected* `Socket` to `PROBE_HOST:80` (default `www.gstatic.com`, path
-   `/generate_204`), which is routed by the OS into the tun → engine → upstream proxy, write a
-   minimal HTTP GET, read a status line. Success = any HTTP status line parsed within
-   `PROBE_TIMEOUT_MS` (default 8000, 2 attempts, 1.5s backoff).
+   open an *un-protected* `Socket` to `PROBE_HOST:80` (shipped default **`1.1.1.1`**, path `/`),
+   which is routed by the OS into the tun → engine → upstream proxy, write a minimal HTTP GET,
+   read a status line. Success = any HTTP status line parsed within `PROBE_TIMEOUT_MS` (default
+   8000, 2 attempts, 1.5s backoff).
+
+   **Hardening applied at ship (post-review):** the probe target is an **IP literal**, not a
+   hostname (the original draft used `www.gstatic.com`/`/generate_204`). CONNECTED must not itself
+   depend on in-tun DNS working — DNS is exactly the subsystem most likely to be degraded on a
+   residential exit (failure #2). Dialing a literal means the upstream proxy connects directly, no
+   resolution needed, so a DNS outage surfaces only as the post-connect `dns` health chip, never as
+   a bring-up failure.
 
 Rationale: pre-flight already proved the *proxy* speaks TCP; the in-tun probe proves the *whole data
 path* (tun→router→engine→loopback→dialer→proxy) works end-to-end. That is the honest definition of
@@ -167,16 +174,25 @@ interface DnsResolver {
 All receive an `UpstreamDialer` (the proxy dialer) via constructor; all protect()ed by construction
 because the dialer already protects.
 
-- **`DohResolver`** (`dns/DohResolver.kt`) — primary. `dialer.connect(dohHost, 443)` → wrap the
-  returned (already-tunnelled-to-dohHost:443) socket in an `SSLSocket`
-  (`SSLSocketFactory.getDefault().createSocket(sock, dohHost, 443, true)`, set SNI via
-  `SSLParameters.serverNames`, `startHandshake()`), then HTTP/1.1:
+- **`DohResolver`** (`dns/DohResolver.kt`) — primary. Connects to the endpoint's **IP literal** on
+  :443 (no bootstrap DNS needed), wraps the tunnelled socket in an `SSLSocket`, then HTTP/1.1:
   `POST /dns-query` with `Content-Type: application/dns-message`, `Accept: application/dns-message`,
   `Content-Length`, `Connection: close`, body = raw query bytes. Read status; on 200 read
-  `Content-Length` bytes = answer. Default resolvers, ordered: `cloudflare-dns.com` (1.1.1.1),
-  `dns.google`. Configurable. TLS cert validation ON (default trust store). Timeout `DNS_TIMEOUT_MS`.
+  `Content-Length` bytes = answer. Default resolvers, ordered: `cloudflare-dns.com` (1.1.1.1, 1.0.0.1),
+  `dns.google` (8.8.8.8). TLS cert validation is ALWAYS ON — never skipped — but the *mechanism*
+  is SDK-gated (`DohResolver.shouldUseSniApis`, hardening applied at ship): API 24+ sets
+  `SSLParameters.serverNames` + `endpointIdentificationAlgorithm = "HTTPS"` before the handshake so
+  the platform verifies the cert against the DoH host; API 21–23 lack those APIs entirely (they
+  throw `NoSuchMethodError` if called), so on that range the code completes the handshake and then
+  verifies the hostname manually with `HttpsURLConnection.getDefaultHostnameVerifier()` — same
+  guarantee, different mechanism, never a silently-skipped check. `DotResolver` reuses this same
+  guarded TLS wrap (`DohResolver.tlsWrapPort`) so it never re-introduces the crash on 21–23.
+  Suspend-native (`resolveVia` is a `suspend fun` awaiting `dialer.connect` directly): an earlier
+  draft bridged the IO-dispatched dialer through `runBlocking`, which parked a second IO-pool thread
+  per resolution and defeated structured cancellation; removed at ship. Timeout `DNS_TIMEOUT_MS`.
 - **`DotResolver`** (`dns/DotResolver.kt`) — fallback 1. `dialer.connect(dotHost, 853)` → TLS →
-  RFC 7858 2-byte length-prefixed DNS message exchange.
+  RFC 7858 2-byte length-prefixed DNS message exchange. Same suspend-native + SDK-guarded TLS fix
+  as `DohResolver`.
 - **`DnsOverTcpResolver`** (`dns/DnsOverTcpResolver.kt`) — fallback 2. Exactly the v2 behaviour
   (RFC 7766, 2-byte length prefix to `dnsServer:53` through the proxy). Kept because some proxies
   DO allow :53 and it is the cheapest path when they do.
@@ -293,12 +309,26 @@ do not pretend otherwise.
 
 | Tier | Mechanism | Reality |
 |------|-----------|---------|
-| **(a) LAN proxy endpoint** (default, root-free, ACTUALLY works) | A `LanShareServer` binds an HTTP-CONNECT + SOCKS5 listener on `0.0.0.0:<port>` (the LAN/hotspot iface). Other devices set their proxy to `phoneIP:port`. That traffic enters our server → `UpstreamDialer` → upstream proxy exit. | Genuinely carries client traffic through the paid proxy. Clients must set a proxy (per-app or Wi-Fi advanced). |
+| **(a) LAN proxy endpoint** (default, root-free, ACTUALLY works) | A `LanShareServer` binds an HTTP-CONNECT + SOCKS5 listener on the concrete LAN/hotspot address `HotspotCapability.localLanAddress()` — **never `0.0.0.0`** (see hardening below). Other devices set their proxy to `phoneIP:port`. That traffic enters our server → `UpstreamDialer` → upstream proxy exit. | Genuinely carries client traffic through the paid proxy. Clients must set a proxy (per-app or Wi-Fi advanced). |
 | **(b) root transparent** | Detect root; if present, offer `iptables`/`ip rule` to redirect tethered subnet into the tun/`LanShareServer`. | Transparent (no client config) but requires root. Behind a root check; off by default. |
 | **(c) reporting** | `HotspotCapability` always tells the truth about what's active and what clients must do. | Always honest. |
 
 Ship (a) working + documented, (b) behind root check, (c) always. **Plus:** QR / one-tap that encodes
 `phoneIP:port` (and optional PAC URL) so another device configures itself in one scan.
+
+**Hardening applied at ship (post-review, HIGH finding):** the original draft allowed an
+optional no-auth mode and would bind to any interface it was told to. Both were removed:
+
+- **Auth is always forced on.** `HotspotControllerImpl.startLanShare` ignores its `requireAuth`
+  parameter's intent to ever be `false` in practice — a random per-session credential (`LanCredential`)
+  is always generated, and the "no auth" toggle that existed in an earlier `HotspotSettingsPanel`
+  draft was deleted from the UI entirely. Rationale: the LAN share is a live relay over the user's
+  paid, identity-bearing proxy exit; an unauthenticated endpoint on an untrusted Wi-Fi/hotspot
+  network is an open relay for anyone on that network.
+- **Bind-address is asserted, not assumed.** After `LanShareServer.start()`, the controller checks
+  `server.boundAddress?.isAnyLocalAddress` and refuses the share (tearing the server back down) if it
+  ever resolved to a wildcard bind — defence in depth against `localLanAddress()` ever returning a
+  bad value.
 
 ### 6.3 LanShareServer details (hotspot lane, NEW)
 
@@ -307,17 +337,44 @@ Ship (a) working + documented, (b) behind root check, (c) always. **Plus:** QR /
   API; does not edit core). Every client connection dials the upstream proxy through that — so LAN
   clients egress at the proxy exit, same as the phone.
 - Binds to the hotspot iface IP (discovered via `NetworkInterface`, typically `192.168.43.1` /
-  `192.168.x.1`). Optional Basic/SOCKS auth (random per-session cred shown in the QR) so a random LAN
-  device can't free-ride.
+  `192.168.x.1`). Auth is always required (random per-session cred shown in the QR/settings panel) —
+  there is no unauthenticated mode.
 - Only runs while the tunnel is CONNECTED; stops on teardown (hotspot lane observes `VpnRuntime.state`).
-- Security: never binds `0.0.0.0` unless the user enables sharing; default off.
+- Security: never binds `0.0.0.0` — always the concrete LAN address, asserted by the controller.
+- **SSRF guard (HIGH finding, fixed at ship):** every SOCKS5 and HTTP-CONNECT/absolute-URI target is
+  checked by `LanShareServer.isBlockedTarget` before dialing. IP literals resolving to loopback,
+  link-local, site-local (RFC 1918), multicast, unspecified, IPv4 CGNAT (`100.64.0.0/10`, not covered
+  by `isSiteLocalAddress`), or IPv6 unique-local (`fc00::/7`) are refused — a stranger on the shared
+  LAN cannot use the share to pivot into the phone's own network. Hostnames are not screened here
+  (they resolve at the proxy exit, not locally), only literals.
+- **In-flight teardown on stop (HIGH finding, fixed at ship):** `stop()` used to close only the
+  listening `ServerSocket`; already-accepted client↔upstream pumps kept forwarding after "Stop
+  sharing" because nothing tracked them. `LanShareServer` now keeps a `live` set of every client and
+  upstream socket for the duration of `handle()`, and `stop()` closes every socket in that set —
+  proven by the `stop_closes_inflight_tunnels` test.
+- **Constant-time credential compare:** both the SOCKS5 username/password sub-negotiation and the
+  HTTP `Proxy-Authorization: Basic` check use `MessageDigest.isEqual` rather than `String.equals`, so
+  response timing cannot leak how many leading credential bytes matched.
 
 ### 6.4 The seam — `HotspotController` (core §9.3; implemented by hotspot lane)
 
 Hotspot lane files (all NEW): `hotspot/HotspotControllerImpl.kt`, `hotspot/LanShareServer.kt`,
 `hotspot/RootRedirector.kt`, `hotspot/HotspotCapability.kt`, `hotspot/QrPayload.kt`,
 `hotspot/HotspotRegistrar.kt` (Initializer), plus tests. UI panel via `settingsPanels`.
-Compat adds any manifest bits (e.g. `ACCESS_WIFI_STATE`, `ACCESS_NETWORK_STATE` already present).
+Compat adds any manifest bits (`ACCESS_WIFI_STATE`, `NEARBY_WIFI_DEVICES neverForLocation` for
+API 33+; `ACCESS_NETWORK_STATE` already present). `CHANGE_WIFI_STATE` is intentionally **not**
+declared — the app never toggles Wi-Fi/tethering itself, it only discovers the LAN address to bind
+to, so requesting that permission would be over-broad.
+
+### 6.5 RootRedirector chain hygiene (MEDIUM finding, fixed at ship)
+
+The draft `apply()`/`revert()` scripts wrote directly into the platform's generic `FORWARD` and
+`nat POSTROUTING` chains. On `revert()`, a naive "delete our ACCEPT/MASQUERADE rule" risked matching
+and deleting a rule some *other* app or the platform itself had installed with the same shape. The
+shipped `RootRedirector.buildApplyScript`/`buildRevertScript` route every accept/masquerade rule
+through two dedicated, DJProxy-owned chains — `DJPROXY_FWD` (filter) and `DJPROXY_NAT` (nat) — and
+only ever jump to them from `FORWARD`/`POSTROUTING`. `revert()` deletes the jump, flushes, and drops
+those two chains; it never touches a rule it did not create.
 
 ---
 
@@ -337,7 +394,8 @@ universal APK for phones + x86 emulators. NDK r27 (16KB-page clean) unchanged.
 | `POST_NOTIFICATIONS` runtime perm | 33 | `<33`: no runtime request (manifest perm harmless) |
 | `FOREGROUND_SERVICE` perm | 28 | manifest perm ignored `<28` |
 | `Builder.setMetered` | 29 | guarded (already) |
-| AndroidKeyStore AES/GCM (CredentialStore) | 23 | **`21–22`: no AndroidKeyStore GCM** → fallback: do NOT persist password (session-only); persist non-secret fields; on restart prompt re-entry. Never store plaintext. (core edits `CredentialStore.kt`) |
+| AndroidKeyStore AES/GCM (CredentialStore) | 23 | **`21–22`: no AndroidKeyStore GCM** → fallback: do NOT persist password (session-only); persist non-secret fields; on restart prompt re-entry. Never store plaintext. `CredentialStore.keystoreAvailable(sdkInt)` gates every call site; `encrypt`/`decrypt` catch `Throwable` (not just `Exception`) because `KeyGenParameterSpec`/`KeyProperties` throw `NoClassDefFoundError` — an `Error`, not an `Exception` — below API 23 if ever reached without the guard (HIGH finding, fixed at ship). |
+| TLS SNI / endpoint-identification (`SNIHostName`, `setServerNames`, `setEndpointIdentificationAlgorithm`) | 24 | **`21–23`: APIs absent, throw `NoSuchMethodError` if called.** `DohResolver.shouldUseSniApis(sdkInt)` gates them; below 24, complete the handshake anyway and verify the hostname manually via `HttpsURLConnection.getDefaultHostnameVerifier()`. Certificate/hostname verification is never skipped, only the mechanism differs. (HIGH finding, fixed at ship — this crashed DoH/DoT bring-up on 21–23 before the guard.) |
 | `LocationManager.addTestProvider` new signature | 30 | branch old/new ctor (location lane) |
 | `FusedLocationProviderClient.setMockMode` | needs GMS | optional; degrade to LocationManager |
 | IPv6 route `::/0`, `setBlocking` | 21 | OK |
@@ -383,11 +441,19 @@ crash, never lie.
   build/device info (model, Android ver, API, ABI list, DJProxy versionName/Code) + last
   `HealthReport` (from `VpnRuntime.lastHealthReport`) + failure category/reason + last_crash.txt if
   present.
-- **Transport**: `ACTION_SENDTO` `mailto:darshjme@gmail.com` prefilled subject/body. **No backend, no
-  SMTP, no INTERNET-side send** — the device mail client sends only if the user taps Send.
+- **Transport**: `ACTION_SENDTO` `mailto:${BuildConfig.DIAG_RECIPIENT}` prefilled subject/body. The
+  recipient is a Gradle `buildConfigField` (`app/build.gradle.kts`), not a hardcoded literal in the
+  diagnostics lane, precisely so a third-party fork of this MIT source can blank or replace it and
+  never silently mail reports to the original maintainer's inbox. The official build ships the
+  maintainer's own address. **No backend, no SMTP, no INTERNET-side send** — the device mail client
+  sends only if the user taps Send.
 - **Redaction (hard rule)**: NEVER include the proxy password. `ReportBuilder` scrubs: the password is
   never available to it (not in LogBus, not in state), and it additionally regex-scrubs anything
-  resembling `://user:pass@` and `password=` tokens as defence-in-depth. Redaction is unit-tested.
+  resembling `://user:pass@` and `password=`/`token:` tokens as defence-in-depth. Redaction is
+  unit-tested (`ReportBuilderRedactionTest`).
+- **Crash trace attachment**: `ReportBuilder.collect` reads `CrashCatcher`'s `filesDir/last_crash.txt`
+  if present, folds it into the report body under "Last captured crash", then **deletes the file** so
+  a stale crash is never attached to an unrelated future report.
 
 Diagnostics lane files (all NEW): `diag/DiagnosticsSink.kt` (implements `CriticalFailureSink`),
 `diag/ReportBuilder.kt`, `diag/MailIntentFactory.kt`, `diag/DiagPrefs.kt`, `diag/DiagnosticsRegistrar.kt`
@@ -565,8 +631,6 @@ No file appears in two lanes. `strings.xml` is owned by **compat** as the single
 strings hand compat the entries (or use inline Compose strings in their own panels to avoid contention).
 The Compose `settingsPanels` mechanism (§9.5) is what lets location/hotspot/diagnostics ship their own
 settings UI without touching `ui/**`.
-```
-```
 
 ## 13. Test gates (green before merge, per lane)
 
@@ -581,3 +645,61 @@ settings UI without touching `ui/**`.
 Build/verify: `gradle.bat -p D:\AI\DJProxy assembleDebug` then `testDebugUnitTest`, then install on
 RZCY71VED0R (real, Android 16) **and** emulator-5554 (LDPlayer, honest-bypass path). Native build
 budget 2–4 min.
+
+---
+
+## 14. Shipped state — security-remediation pass (post-§1–13 build)
+
+Everything in §1–13 above is what's in the repo today. After the initial v3 build landed, a security
+review of that same code found and fixed the following before the release artifact was signed. Each
+is called out at its point of relevance above (§2.1, §3.3, §6.2/6.3/6.5, §7.2, §8); this section is
+the one-place summary plus what was verified in-workflow versus what still needs an owner on-device
+pass.
+
+**Findings fixed, all confirmed by reading the shipped source:**
+
+- HIGH — LAN-share open relay: forced auth, concrete-address bind assertion, SSRF target blocking (§6.2/6.3).
+- HIGH — DoH/DoT crash on API 21–23: SDK-gated SNI path with manual hostname-verify fallback (§3.3/§7.2).
+- HIGH — `CredentialStore` `NoClassDefFoundError` on API 21–22: `keystoreAvailable(sdkInt)` guard +
+  broadened `Throwable` catch (§7.2).
+- HIGH — Fused mock location never publishing: `MockLocationEngine`'s `FusedMock.start()` now sets
+  `active = true` *before* calling `push()`, since `push()` short-circuits while `active` is false
+  (the original order silently no-op'd every fused fix).
+- HIGH — `LanShareServer.stop()` leaking in-flight tunnels: `live` socket set closed on stop (§6.3).
+- MEDIUM — `RootRedirector` revert stripping foreign firewall rules: dedicated `DJPROXY_FWD`/
+  `DJPROXY_NAT` chains, revert scoped to only those (§6.5).
+- LOW — constant-time credential compare (`MessageDigest.isEqual`, §6.3); chunked-transfer decode OOM
+  guard in both `DohHttp`/`HttpText` chunked readers (reject an oversized declared chunk length before
+  allocating for it); `runBlocking` removed from all three DNS resolver transports in favour of native
+  suspend (§3.3); diagnostic recipient moved to `BuildConfig.DIAG_RECIPIENT` (§8); `CrashCatcher`'s
+  `last_crash.txt` now read, redacted, folded into the report, and deleted by `ReportBuilder.collect`
+  (§8); `ConnectivityProbe` decoupled the CONNECTED gate from in-tun DNS via the IP-literal probe
+  target (§2.1).
+
+One unrelated, pre-existing lint false positive (`InvalidFragmentVersionForActivityResult` firing on
+a Compose-only, Fragment-free activity) blocked `lintVitalRelease`; it is disabled with a documented
+rationale in `app/build.gradle.kts` — every other lint check stays fatal for release.
+
+**Green gates, real output:** `testDebugUnitTest` → 143 tests, 0 failures, 0 errors (17 test files
+across core/dns/location/hotspot/diagnostics/compat). `assembleRelease` → BUILD SUCCESSFUL, native
+ndk-build across all 4 ABIs. `apksigner verify` → v1+v2 verified, RSA-4096
+`CN=DJProxy, O=Darshankumar Joshi`. Manifest/badging inspected directly: `minSdk 21`, `targetSdk 35`,
+`native-code: arm64-v8a armeabi-v7a x86 x86_64`, `DjVpnService` + `BIND_VPN_SERVICE` +
+`android.net.VpnService` intent-filter + `specialUse` foreground service type present; permission set
+is `INTERNET, ACCESS_NETWORK_STATE, FOREGROUND_SERVICE(+SPECIAL_USE), POST_NOTIFICATIONS, WAKE_LOCK,
+ACCESS_WIFI_STATE, NEARBY_WIFI_DEVICES(neverForLocation)` — `ACCESS_FINE/COARSE_LOCATION` and
+`CHANGE_WIFI_STATE` are deliberately absent (see the manifest comments and §5.3/§6.4).
+
+**Proven in-workflow:** compilation, all 143 unit tests, the native 4-ABI build, signing, and every
+behavioral fix that has a JVM-reachable unit test — the SSRF filter, bound-address≠`0.0.0.0`,
+in-flight-teardown, the SNI-guard and Keystore-guard SDK branches, the `RootRedirector` chain-surgery
+script builders, and the constant-time compare.
+
+**Not yet proven — needs an owner on-device pass** (no live proxy/geo/hotspot run has happened from
+this workflow): a real DoH/DoT TLS handshake against an actual API 21–23 device (the manual-verify
+path is unit-tested for its logic, not exercised against a live TLS server on that OS range); tunnel
+bring-up + the IP-literal probe through a live nsocks/iproyal/luxsocks exit; the Fused mock-location
+publish path on a real device with the Developer-Options grant; LAN-share reachability and auth from
+a second physical device; the root transparent-redirect chains on an actually-rooted device; and
+emulator (LDPlayer/AVD) bypass behavior end to end. Until that pass runs, treat the health/DNS/
+location/hotspot lanes as code-correct and unit-verified, not field-verified.

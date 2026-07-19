@@ -59,6 +59,12 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
 
     var showSettings by rememberSaveable { mutableStateOf(false) }
 
+    // First-run onboarding: fires once after install to guide the Developer-Options + mock-location
+    // grants. Gated on a persisted flag, so it never re-shows; the core proxy flow is reachable via
+    // Skip. rememberSaveable survives rotation without re-reading prefs mid-session.
+    val onboardingContext = androidx.compose.ui.platform.LocalContext.current
+    var showOnboarding by rememberSaveable { mutableStateOf(OnboardingState.shouldShow(onboardingContext)) }
+
     // Diagnostics is an optional feature lane; ui never assumes it is present. FeatureRegistry's
     // holder is a plain @Volatile var (not a Flow), so we poll it — the "Send report" affordance
     // flips on the moment the diagnostics lane's Initializer attaches, same pattern the settings
@@ -76,7 +82,12 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
             .fillMaxSize()
             .background(DjBackgroundBrush),
     ) {
-        if (showSettings) {
+        if (showOnboarding) {
+            OnboardingSheet(onFinish = {
+                OnboardingState.markSeen(onboardingContext)
+                showOnboarding = false
+            })
+        } else if (showSettings) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = 20.dp, vertical = 24.dp),

@@ -7,8 +7,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * §13 ConnectivityProbeTest — the new CONNECTED criterion. A parsed HTTP status line = Ok (the whole
- * data path works); a refused connection = Fail. Never throws.
+ * §13 ConnectivityProbeTest — the multi-target CONNECTED criterion. A completed connect (with or
+ * without a parsed HTTP status) to ANY target = Ok (the data path works); every target refused = Fail.
+ * Never throws.
  */
 class ConnectivityProbeTest {
 
@@ -19,8 +20,7 @@ class ConnectivityProbeTest {
         server.start()
         server.use {
             val probe = ConnectivityProbe(
-                host = "127.0.0.1",
-                port = server.port,
+                targets = listOf("127.0.0.1" to server.port),
                 attempts = 1,
                 timeoutMs = 2_000,
                 knownExitIp = "203.0.113.7",
@@ -32,10 +32,29 @@ class ConnectivityProbeTest {
     }
 
     @Test
-    fun failWhenConnectionRefused() = runBlocking {
-        // Port 1 on loopback has nothing listening → refused fast.
-        val probe = ConnectivityProbe(host = "127.0.0.1", port = 1, attempts = 1, timeoutMs = 1_000)
-        val outcome = probe.run()
-        assertTrue("expected Fail, got $outcome", outcome is ProbeOutcome.Fail)
+    fun okWhenFirstTargetRefusedButAnotherReachable() = runBlocking {
+        // Simulates a residential exit that filters one probe IP: first target refused, second works.
+        val resp = "HTTP/1.1 301 Moved\r\nConnection: close\r\n\r\n".toByteArray(Charsets.US_ASCII)
+        val server = LoopbackHttpServer(resp)
+        server.start()
+        server.use {
+            val probe = ConnectivityProbe(
+                targets = listOf("127.0.0.1" to 1, "127.0.0.1" to server.port),
+                attempts = 1,
+                timeoutMs = 2_000,
+            )
+            assertTrue(probe.run() is ProbeOutcome.Ok)
+        }
+    }
+
+    @Test
+    fun failWhenAllTargetsRefused() = runBlocking {
+        // Nothing listening on these loopback ports → every target refused fast → Fail.
+        val probe = ConnectivityProbe(
+            targets = listOf("127.0.0.1" to 1, "127.0.0.1" to 2),
+            attempts = 1,
+            timeoutMs = 1_000,
+        )
+        assertTrue("expected Fail, got …", probe.run() is ProbeOutcome.Fail)
     }
 }

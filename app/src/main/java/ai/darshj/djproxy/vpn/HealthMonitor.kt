@@ -50,12 +50,16 @@ class HealthMonitor(
     }
 
     private fun publish(report: HealthReport) {
-        VpnRuntime.lastHealthReport = report
+        // Carry forward the reachability decided once at bring-up; this pass only re-checks the leak
+        // indicators (v6/udp/dns), so overwriting reachability with its UNKNOWN default would wrongly
+        // drop the bring-up advisory chip.
+        val merged = report.copy(reachability = VpnRuntime.lastHealthReport?.reachability ?: report.reachability)
+        VpnRuntime.lastHealthReport = merged
         // Only decorate an existing CONNECTED/RECONNECTING state — never change the stage.
-        VpnRuntime.update { if (it.isUp) it.copy(health = report) else it }
-        if (report.hasWarnings) {
-            LogBus.i(TAG, "health advisory: v6=${report.ipv6} udp=${report.udp} dns=${report.dns} " +
-                "strategy=${report.activeDnsStrategy} emuBypass=${report.emulatorBypassSuspected}")
+        VpnRuntime.update { if (it.isUp) it.copy(health = merged) else it }
+        if (merged.hasWarnings) {
+            LogBus.i(TAG, "health advisory: v6=${merged.ipv6} udp=${merged.udp} dns=${merged.dns} " +
+                "reach=${merged.reachability} strategy=${merged.activeDnsStrategy} emuBypass=${merged.emulatorBypassSuspected}")
         }
     }
 

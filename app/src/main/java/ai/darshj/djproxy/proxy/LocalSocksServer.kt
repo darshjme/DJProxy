@@ -69,6 +69,9 @@ class LocalSocksServer(
     }
 
     private fun handle(client: Socket) {
+        // DIAGNOSTIC (§probe): a connection here proves hev reached the loopback SOCKS front, i.e. the
+        // tun→router→engine link works and the break (if any) is downstream at the upstream dial.
+        ai.darshj.djproxy.vpn.LogBus.i("socks", "hev connected to loopback SOCKS front")
         onConnectionOpened()
         var upstream: Socket? = null
         try {

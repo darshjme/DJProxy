@@ -201,7 +201,10 @@ class TunRouter(
     private fun forwardToEngine(buf: ByteArray, n: Int) {
         try {
             engOut.write(buf, 0, n)
-            counters.bytesUp.addAndGet(n.toLong())
+            val total = counters.bytesUp.addAndGet(n.toLong())
+            // DIAGNOSTIC (§probe): confirm the router→engine socketpair link actually carries the
+            // first uplink packet. A silent break here (hev never reads) is invisible otherwise.
+            if (total == n.toLong()) LogBus.i(TAG, "first packet forwarded to engine ($n bytes)")
         } catch (e: Exception) {
             if (running) { LogBus.e(TAG, "engine write failed: ${e.message}"); onEngineFault() }
         }

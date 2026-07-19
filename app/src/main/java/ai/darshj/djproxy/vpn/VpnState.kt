@@ -42,12 +42,16 @@ data class HealthReport(
     val udp: Health = Health.UNKNOWN,           // OK = dropped as intended
     val dns: Health = Health.UNKNOWN,           // OK = resolved through proxy
     val activeDnsStrategy: String = "",         // "DoH:443" | "DoT:853" | "TCP:53"
+    // OK = the in-tun probe reached the internet; DEGRADED = it could not confirm reachability but the
+    // proxy was pre-validated and the tunnel is up anyway (e.g. the exit filters our probe IPs). Never
+    // a gate — a DEGRADED here still CONNECTS, matching Postern's no-probe behaviour.
+    val reachability: Health = Health.UNKNOWN,
     val emulatorBypassSuspected: Boolean = false,
     val checkedAtMs: Long = 0,
 ) {
     val hasWarnings: Boolean
         get() = ipv6 == Health.DEGRADED || udp == Health.DEGRADED ||
-            dns == Health.DEGRADED || emulatorBypassSuspected
+            dns == Health.DEGRADED || reachability == Health.DEGRADED || emulatorBypassSuspected
     // NOTE: there is NO allPass gate anymore. Nothing blocks CONNECTED on this.
 }
 

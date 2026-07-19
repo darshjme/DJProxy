@@ -201,14 +201,29 @@ class DjVpnService : VpnService() {
             }
             LogBus.i(TAG, "running in-tun connectivity probe")
             val probe = ConnectivityProbe(knownExitIp = VpnRuntime.lastValidatedExitIp).run()
-            if (probe is ProbeOutcome.Fail) {
-                // A DATA-PATH failure (not a leak failure): fail closed, as today.
-                throw BringUpException(probe.error)
+            // The engine is Running and the proxy was already proven by pre-flight validation, so a
+            // probe miss is ADVISORY, not fatal (§2.1 revised): it almost always means the exit filters
+            // our probe IPs, not that the tunnel is broken — the exact case where a valid proxy works
+            // in Postern (which has no probe) but a hard gate here would refuse to connect. So we
+            // CONNECT either way and surface reachability as a non-blocking health chip.
+            val reachability: Health
+            val exitIp: String?
+            when (probe) {
+                is ProbeOutcome.Ok -> {
+                    reachability = Health.OK
+                    exitIp = probe.exitIp
+                    LogBus.i(TAG, "in-tun probe ok (latency=${probe.latencyMs}ms)")
+                }
+                is ProbeOutcome.Fail -> {
+                    reachability = Health.DEGRADED
+                    exitIp = VpnRuntime.lastValidatedExitIp
+                    LogBus.w(TAG, "in-tun probe could not confirm reachability (${probe.error.message}); " +
+                        "connecting anyway — proxy was pre-validated, likely the exit filters the probe IPs")
+                }
             }
-            val exitIp = (probe as ProbeOutcome.Ok).exitIp
 
-            // 6) Data path proven: hand ownership to the watchdog, start supervision + stats, and
-            //    only now begin treating engine faults as recoverable reconnects.
+            // 6) Tunnel up: hand ownership to the watchdog, start supervision + stats, and only now
+            //    begin treating engine faults as recoverable reconnects.
             connected = true
             watchdog?.start()
             stats = StatsCollector(serviceScope, VpnRuntime.counters, { engine }).also { it.start() }
@@ -218,12 +233,12 @@ class DjVpnService : VpnService() {
                     stage = VpnStage.CONNECTED,
                     proxyRedacted = config.redacted(),
                     connectedSinceMs = System.currentTimeMillis(),
-                    health = null, // populated by the first HealthMonitor pass
+                    health = HealthReport(reachability = reachability, checkedAtMs = System.currentTimeMillis()),
                     error = null,
                 )
             }
             updateNotification("Connected · ${config.redacted()}")
-            LogBus.i(TAG, "CONNECTED — device-wide tunnel up (probe ok, latency=${probe.latencyMs}ms)")
+            LogBus.i(TAG, "CONNECTED — device-wide tunnel up (reachability=$reachability)")
 
             // 7) ADVISORY health pass (§2.2): starts leak indicators + DNS-fallback. NEVER gates/tears down.
             dnsInterceptor?.let { healthMonitor = HealthMonitor(it).also { hm -> hm.start() } }
@@ -269,7 +284,7 @@ class DjVpnService : VpnService() {
             LogBus.i(TAG, "loopback SOCKS front on 127.0.0.1:${lp.listenPort}")
 
             val eng = engine ?: RemoteEngine(applicationContext).also { engine = it }
-            val ok = eng.startRemote(engineDup, lp.listenPort, TunConfig.MTU, "warn")
+            val ok = eng.startRemote(engineDup, lp.listenPort, TunConfig.MTU, if (ai.darshj.djproxy.BuildConfig.DEBUG) "debug" else "warn")
             // The Binder has dup()'d the engine end into :engine; drop our copy so a crash there
             // closes the socketpair end and the router EOFs (fail-closed).
             runCatching { engineDup.close() }
@@ -323,7 +338,7 @@ class DjVpnService : VpnService() {
 
             val port = loopback?.listenPort ?: return false
             val eng = engine ?: RemoteEngine(applicationContext).also { engine = it }
-            val ok = eng.startRemote(engineDup, port, TunConfig.MTU, "warn")
+            val ok = eng.startRemote(engineDup, port, TunConfig.MTU, if (ai.darshj.djproxy.BuildConfig.DEBUG) "debug" else "warn")
             runCatching { engineDup.close() }
             if (!ok) return false
         }

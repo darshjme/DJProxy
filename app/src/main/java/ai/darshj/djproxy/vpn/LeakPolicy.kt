@@ -131,6 +131,13 @@ class TunRouter(
     private val counters: TunnelCounters,
     private val onTunFault: () -> Unit,
     private val onEngineFault: () -> Unit,
+    /**
+     * When true (default), DNS to the sentinel is FORWARDED to the native engine, whose MapDNS answers
+     * it locally with a fake IP and resolves the real name at the proxy exit via a SOCKS5 domain
+     * CONNECT — no port 53 on the wire, DNS geolocated to the exit. When false, DNS is handled in
+     * Kotlin via [DnsInterceptor] (DoH/DoT/TCP-53 through the proxy) — the legacy fallback path.
+     */
+    private val mapDns: Boolean = true,
 ) {
     private val sentinelAddr = stringToIp(TunConfig.DNS_SENTINEL)
 
@@ -216,9 +223,16 @@ class TunRouter(
 
         val isTunnelledDns = ip.dstAddr == sentinelAddr && udp.dstPort == DNS_PORT
         if (isTunnelledDns) {
-            // Copy out of the reusable buffer before handing to the async DNS path.
-            val packet = buf.copyOf(n)
-            dnsScope.launch { handleDnsPacket(packet) }
+            if (mapDns) {
+                // MapDNS path: hand the DNS query straight to the native engine. hev's MapDNS answers
+                // it locally with a fake IP and later resolves the real name at the proxy exit via a
+                // SOCKS5 domain CONNECT — nothing on port 53 leaves the device.
+                forwardToEngine(buf, n)
+            } else {
+                // Legacy Kotlin path: resolve over DoH/DoT/TCP-53 through the proxy, synth the reply.
+                val packet = buf.copyOf(n)
+                dnsScope.launch { handleDnsPacket(packet) }
+            }
             return
         }
 

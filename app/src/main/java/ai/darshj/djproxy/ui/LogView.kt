@@ -1,7 +1,7 @@
 package ai.darshj.djproxy.ui
 
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -62,7 +62,10 @@ fun LogView(events: List<LogEvent>, modifier: Modifier = Modifier) {
         modifier = modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 6.dp),
     ) {
-        items(events, key = { it.timeMs.toString() + it.tag + it.message.hashCode() }) { event ->
+        // Key MUST be unique within the list. timeMs+tag+hash collides when the same message logs
+        // twice in one millisecond (e.g. a burst of identical DNS lines) — that duplicate-key throw
+        // crashed the whole app. The position index guarantees uniqueness.
+        itemsIndexed(events, key = { index, e -> "$index-${e.timeMs}-${e.tag}" }) { _, event ->
             LogLine(event)
         }
     }

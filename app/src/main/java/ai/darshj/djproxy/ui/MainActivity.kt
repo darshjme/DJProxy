@@ -9,11 +9,14 @@ import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import ai.darshj.djproxy.ui.theme.DJProxyTheme
 import ai.darshj.djproxy.vpn.DjVpnService
 import ai.darshj.djproxy.vpn.FeatureRegistry
@@ -42,6 +45,12 @@ class MainActivity : ComponentActivity() {
     private val viewModel: ProxyViewModel by viewModels()
 
     private var bound = false
+
+    /** Branded splash hold: androidx.core.splashscreen paints [Theme.DJProxy.Splash]'s emblem
+     *  instantly, but on a fast device Compose's first frame can land inside a few ms — long
+     *  enough that the brand art would never actually be seen. Hold the system splash on screen
+     *  for a short, deliberate beat so the DJProxy mark registers, then release it. */
+    private var keepSplashOnScreen = true
 
     private val vpnConsentLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -78,7 +87,11 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
+
+        splashScreen.setKeepOnScreenCondition { keepSplashOnScreen }
+        Handler(Looper.getMainLooper()).postDelayed({ keepSplashOnScreen = false }, SPLASH_HOLD_MS)
 
         requestNotificationPermissionIfNeeded()
         requestVpnConsent()
@@ -135,5 +148,11 @@ class MainActivity : ComponentActivity() {
         if (bound) return
         val intent = Intent(this, DjVpnService::class.java)
         bound = bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+    }
+
+    private companion object {
+        /** Deliberate branded hold so the DJProxy splash emblem is actually seen, not just
+         *  flashed for a frame. Short enough to never feel like a stall. */
+        const val SPLASH_HOLD_MS = 700L
     }
 }

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,8 +21,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeveloperMode
+import androidx.compose.material.icons.filled.LocationOff
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -32,6 +35,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,17 +51,25 @@ import ai.darshj.djproxy.ui.theme.DjColors
 import kotlinx.coroutines.delay
 
 /**
- * First-run onboarding. Fires once after install (gated by [OnboardingState]) and walks the user
- * through the two grants location-spoofing needs, because on unrooted Android they can only be set
- * by hand in system Settings:
+ * First-run onboarding. Fires once after install (gated by [OnboardingState]).
  *
- *   1. Enable Developer Options (About phone → tap Build number 7×).
- *   2. Select DJProxy as the "mock location app" (Developer Options → Select mock location app).
+ * Location matching (a.k.a. GPS spoofing) is an explicit, OPT-IN choice — never forced on anyone.
+ * The flow is two stages:
  *
- * It never blocks the core proxy flow — the user can Skip and still paste-and-connect; location
- * spoofing simply stays UNAVAILABLE (honestly reported) until the grant is set. Step 2's status
- * chip flips to "Done" live the moment the grant lands (poll on [isMockLocationAppGranted]), so the
- * user sees immediate confirmation when they return from Settings.
+ *   [Stage.CHOICE]      — "Do you want to match your GPS location to the proxy's region?" with a
+ *                          clear Yes ("Enable location matching") / No ("No thanks, just proxy my
+ *                          traffic") pair. The choice is persisted via [LocationPreference] the
+ *                          instant it is made, so it survives even if onboarding is killed mid-flow.
+ *   [Stage.GRANT_STEPS] — shown ONLY after choosing Yes. Walks the user through the two grants
+ *                          location-spoofing needs on unrooted Android:
+ *                            1. Enable Developer Options (About phone → tap Build number 7×).
+ *                            2. Select DJProxy as the "mock location app" (Developer Options →
+ *                               Select mock location app).
+ *
+ * Choosing No skips straight to the app — no dev-options detour is ever shown to someone who didn't
+ * ask for location matching. It never blocks the core proxy flow either way — the user can Skip and
+ * still paste-and-connect; location spoofing simply stays UNAVAILABLE (honestly reported) until both
+ * the opt-in choice AND the grant are in place.
  *
  * OEM paths differ (Samsung One UI, Xiaomi HyperOS, stock, emulators), so the copy states the
  * generic path and the deep-link buttons jump as close as each OS allows; we never claim a single
@@ -66,10 +78,13 @@ import kotlinx.coroutines.delay
 @Composable
 fun OnboardingSheet(onFinish: () -> Unit) {
     val context = LocalContext.current
+    var stage by rememberSaveable { mutableStateOf(Stage.CHOICE) }
 
     var granted by remember { mutableStateOf(LocationCapabilityDetector.isMockLocationAppGranted(context)) }
     // Poll so the "mock location" step self-confirms when the user comes back from Settings.
-    LaunchedEffect(Unit) {
+    // Only runs once the user has opted in and reached the grant-steps stage.
+    LaunchedEffect(stage) {
+        if (stage != Stage.GRANT_STEPS) return@LaunchedEffect
         while (true) {
             granted = LocationCapabilityDetector.isMockLocationAppGranted(context)
             delay(1500)
@@ -84,63 +99,146 @@ fun OnboardingSheet(onFinish: () -> Unit) {
             .padding(horizontal = 22.dp, vertical = 28.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        Text(
-            text = "Welcome to DJProxy",
-            fontSize = 26.sp,
-            fontWeight = FontWeight.Bold,
-            color = DjColors.TextPrimary,
-        )
-        Text(
-            text = "Route your whole phone through one proxy. To also match your GPS location to the " +
-                "proxy's region — for streaming and region-locked apps — grant these two things once. " +
-                "You can skip and set them up later; the proxy itself works without them.",
-            fontSize = 14.sp,
-            color = DjColors.TextSecondary,
-        )
-
-        StepCard(
-            index = 1,
-            icon = { Icon(Icons.Filled.DeveloperMode, contentDescription = null, tint = DjColors.AccentCyan) },
-            title = "Enable Developer Options",
-            body = "Open Settings → About phone → tap \"Build number\" 7 times until it says " +
-                "\"You are now a developer\". (Samsung: About phone → Software information → Build number.)",
-            done = false,
-            action = {
-                OutlinedButton(onClick = { openDeviceInfoSettings(context) }) {
-                    Text("Open About phone")
-                }
-            },
-        )
-
-        StepCard(
-            index = 2,
-            icon = { Icon(Icons.Filled.LocationOn, contentDescription = null, tint = DjColors.AccentCyan) },
-            title = "Set DJProxy as the mock location app",
-            body = "Open Settings → System → Developer options → \"Select mock location app\" → choose " +
-                "DJProxy. On some phones it's under Developer options → Debugging.",
-            done = granted,
-            action = {
-                OutlinedButton(onClick = { openDeveloperSettings(context) }) {
-                    Text(if (granted) "Granted — open again" else "Open Developer options")
-                }
-            },
-        )
-
-        Spacer(Modifier.height(4.dp))
-
-        Button(
-            onClick = onFinish,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
-        ) {
-            Text(if (granted) "Done — continue" else "Continue")
+        when (stage) {
+            Stage.CHOICE -> LocationChoiceContent(
+                onChooseYes = {
+                    LocationPreference.setEnabled(context, true)
+                    stage = Stage.GRANT_STEPS
+                },
+                onChooseNo = {
+                    LocationPreference.setEnabled(context, false)
+                    onFinish()
+                },
+            )
+            Stage.GRANT_STEPS -> GrantStepsContent(
+                context = context,
+                granted = granted,
+                onFinish = onFinish,
+            )
         }
-        TextButton(
-            onClick = onFinish,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Skip for now", color = DjColors.TextSecondary)
+    }
+}
+
+private enum class Stage { CHOICE, GRANT_STEPS }
+
+@Composable
+private fun LocationChoiceContent(onChooseYes: () -> Unit, onChooseNo: () -> Unit) {
+    Text(
+        text = "Welcome to DJProxy",
+        fontSize = 26.sp,
+        fontWeight = FontWeight.Bold,
+        color = DjColors.TextPrimary,
+    )
+    Text(
+        text = "Route your whole phone through one proxy. That's it — no extra setup needed.",
+        fontSize = 14.sp,
+        color = DjColors.TextSecondary,
+    )
+
+    GlassSurface(modifier = Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Icon(Icons.Filled.LocationOn, contentDescription = null, tint = DjColors.AccentCyan)
+                Text(
+                    "Do you want to match your GPS location to the proxy's region?",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = DjColors.TextPrimary,
+                )
+            }
+            Text(
+                "This is entirely optional. Some streaming and region-locked apps also check your GPS " +
+                    "coordinate, not just your network address. If you turn this on, DJProxy will set your " +
+                    "device's reported location to match wherever the proxy exits — but that requires you to " +
+                    "grant it as your \"mock location app\" in Developer Options first. If you'd rather not " +
+                    "touch Developer Options at all, choose \"No thanks\" and DJProxy will only route your " +
+                    "traffic — your real GPS location is never touched.",
+                fontSize = 13.sp,
+                color = DjColors.TextSecondary,
+            )
         }
+    }
+
+    Spacer(Modifier.height(4.dp))
+
+    Button(
+        onClick = onChooseYes,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+    ) {
+        Icon(Icons.Filled.LocationOn, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text("Enable location matching")
+    }
+    OutlinedButton(
+        onClick = onChooseNo,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = DjColors.TextSecondary),
+    ) {
+        Icon(Icons.Filled.LocationOff, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text("No thanks, just proxy my traffic")
+    }
+}
+
+@Composable
+private fun GrantStepsContent(context: Context, granted: Boolean, onFinish: () -> Unit) {
+    Text(
+        text = "Set up location matching",
+        fontSize = 26.sp,
+        fontWeight = FontWeight.Bold,
+        color = DjColors.TextPrimary,
+    )
+    Text(
+        text = "You chose to match your GPS location to the proxy's region. Grant these two things once — " +
+            "you can skip and set them up later from Settings; the proxy itself works without them.",
+        fontSize = 14.sp,
+        color = DjColors.TextSecondary,
+    )
+
+    StepCard(
+        index = 1,
+        icon = { Icon(Icons.Filled.DeveloperMode, contentDescription = null, tint = DjColors.AccentCyan) },
+        title = "Enable Developer Options",
+        body = "Open Settings → About phone → tap \"Build number\" 7 times until it says " +
+            "\"You are now a developer\". (Samsung: About phone → Software information → Build number.)",
+        done = false,
+        action = {
+            OutlinedButton(onClick = { openDeviceInfoSettings(context) }) {
+                Text("Open About phone")
+            }
+        },
+    )
+
+    StepCard(
+        index = 2,
+        icon = { Icon(Icons.Filled.LocationOn, contentDescription = null, tint = DjColors.AccentCyan) },
+        title = "Set DJProxy as the mock location app",
+        body = "Open Settings → System → Developer options → \"Select mock location app\" → choose " +
+            "DJProxy. On some phones it's under Developer options → Debugging.",
+        done = granted,
+        action = {
+            OutlinedButton(onClick = { openDeveloperSettings(context) }) {
+                Text(if (granted) "Granted — open again" else "Open Developer options")
+            }
+        },
+    )
+
+    Spacer(Modifier.height(4.dp))
+
+    Button(
+        onClick = onFinish,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+    ) {
+        Text(if (granted) "Done — continue" else "Continue")
+    }
+    TextButton(
+        onClick = onFinish,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text("Skip for now", color = DjColors.TextSecondary)
     }
 }
 

@@ -27,4 +27,8 @@
     <color name="colorPrimary">@color/djp_accent_cyan</color>
     <color name="colorPrimaryDark">@color/djp_bg</color>
     <color name="colorAccent">@color/djp_accent_indigo</color>
+
+    <!-- splash screen (androidx.core.splashscreen): same near-black theme surface as djp_bg,
+         kept as its own token so the splash lane never has to touch the core surface color. -->
+    <color name="djp_splash_bg">#0B1220</color>
 </resources>

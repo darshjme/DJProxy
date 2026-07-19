@@ -151,7 +151,8 @@ fun ProxyFields(
             Text("UDP blocked", style = MaterialTheme.typography.titleSmall, color = DjColors.TextPrimary)
             Text(
                 "All UDP is dropped so WebRTC/QUIC can't leak your real IP — browsers fall back to TCP " +
-                    "through the proxy. DNS is resolved over TCP through the proxy too.",
+                    "through the proxy. DNS is resolved at the proxy's exit (MapDNS), so names never leak " +
+                    "and geo-restricted sites see the proxy's region.",
                 style = MaterialTheme.typography.bodySmall,
                 color = DjColors.TextTertiary,
             )

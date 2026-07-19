@@ -25,6 +25,20 @@ data class EngineConfig(
     /** hev log verbosity: one of "debug", "info", "warn", "error", "none". */
     val logLevel: String = "warn",
     val taskStackSize: Int = 20480,
+    /**
+     * MapDNS (fake-IP DNS). When on, hev answers DNS sent to [mapDnsAddress]:53 locally with a
+     * synthetic IP from [mapDnsNetwork]/[mapDnsNetmask], then — when the app connects to that fake IP —
+     * dials the proxy with a SOCKS5 CONNECT carrying the ORIGINAL DOMAIN NAME, so the proxy's EXIT
+     * resolves it. This is what makes DNS work on residential proxies that block outbound port 53
+     * (nsocks/iproyal/luxsocks) AND makes DNS geolocate to the proxy region (OTT/geo unblocking),
+     * with zero DNS packets ever leaving the device. The tun's addDnsServer points at [mapDnsAddress].
+     */
+    val mapDns: Boolean = true,
+    val mapDnsAddress: String = "198.18.0.2",   // == TunConfig.DNS_SENTINEL
+    val mapDnsPort: Int = 53,
+    val mapDnsNetwork: String = "100.64.0.0",    // CGNAT shared space — unroutable, no real-dest clash
+    val mapDnsNetmask: String = "255.192.0.0",   // /10 → ~4M synthetic slots
+    val mapDnsCacheSize: Int = 10000,
 ) {
     /** Renders the exact YAML hev-socks5-tunnel parses via hev_socks5_tunnel_main_from_str(). */
     fun toYaml(): String = buildString {
@@ -37,6 +51,14 @@ data class EngineConfig(
         append("  port: ").append(socksPort).append('\n')
         append("  udp: 'tcp'\n")
         append("  mark: 0\n")
+        if (mapDns) {
+            append("mapdns:\n")
+            append("  address: '").append(mapDnsAddress).append("'\n")
+            append("  port: ").append(mapDnsPort).append('\n')
+            append("  network: '").append(mapDnsNetwork).append("'\n")
+            append("  netmask: '").append(mapDnsNetmask).append("'\n")
+            append("  cache-size: ").append(mapDnsCacheSize).append('\n')
+        }
         append("misc:\n")
         append("  task-stack-size: ").append(taskStackSize).append('\n')
         append("  log-level: '").append(logLevel).append("'\n")

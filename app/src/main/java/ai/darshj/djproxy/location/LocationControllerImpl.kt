@@ -70,6 +70,13 @@ class LocationControllerImpl(
         try {
             connected = true
             lastExitIp = exitIp
+            // Opt-in gate: location matching is OFF unless the user explicitly chose it (onboarding
+            // choice / settings toggle). Without opt-in we NEVER publish a mock fix, regardless of the
+            // OS mock-location grant. [ai.darshj.djproxy.ui.LocationPreference] is the single source.
+            if (!ai.darshj.djproxy.ui.LocationPreference.isEnabled(appContext)) {
+                _current.value = null
+                return
+            }
             refreshCapability(appContext)
             if (_capability.value == LocationCapability.UNAVAILABLE) {
                 // Honest: no grant, no root → we cannot spoof. Publish nothing.

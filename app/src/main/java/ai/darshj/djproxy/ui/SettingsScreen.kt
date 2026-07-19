@@ -34,6 +34,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -68,6 +70,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
  */
 @Composable
 fun SettingsScreen(vpnState: VpnState, onBack: () -> Unit, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    var locationMatchingEnabled by remember { mutableStateOf(LocationPreference.isEnabled(context)) }
+
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
@@ -82,9 +87,75 @@ fun SettingsScreen(vpnState: VpnState, onBack: () -> Unit, modifier: Modifier = 
 
         NetworkInfoPanel(vpnState)
         Spacer(Modifier.height(16.dp))
-        MockLocationInstructionsCard()
+        LocationMatchingToggleCard(
+            enabled = locationMatchingEnabled,
+            onToggle = { newValue ->
+                locationMatchingEnabled = newValue
+                LocationPreference.setEnabled(context, newValue)
+            },
+        )
         Spacer(Modifier.height(16.dp))
-        FeaturePanelsHost()
+        if (locationMatchingEnabled) {
+            MockLocationInstructionsCard()
+            Spacer(Modifier.height(16.dp))
+        }
+        FeaturePanelsHost(locationMatchingEnabled = locationMatchingEnabled)
+    }
+}
+
+/**
+ * Top-level, explicit opt-in toggle for GPS location matching — mirrors the same choice offered in
+ * [OnboardingSheet], persisted through the same [LocationPreference] flag so the two surfaces never
+ * disagree. When OFF, the grant-instructions card and the location lane's own capability panel are
+ * both hidden (see [FeaturePanelsHost]) — there is nothing to configure for a feature the user chose
+ * not to use. Flipping this OFF does not itself revoke the OS-level mock-location app-op grant (only
+ * the user can do that in Developer Options); it flips DJProxy's own gate so spoofing stays off
+ * regardless of that grant, per the location lane's honest-capability contract.
+ */
+@Composable
+private fun LocationMatchingToggleCard(enabled: Boolean, onToggle: (Boolean) -> Unit) {
+    GlassSurface(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Location matching",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = DjColors.TextPrimary,
+                    )
+                    Text(
+                        "Match your GPS coordinate to the proxy's exit region.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = DjColors.TextSecondary,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = onToggle,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = DjColors.AccentCyan,
+                        checkedTrackColor = DjColors.AccentCyanDeep,
+                    ),
+                )
+            }
+            Text(
+                text = if (enabled) {
+                    "On — DJProxy will try to publish the proxy exit's location once the mock-location " +
+                        "grant below is set. Your explicit choice; turn it off any time."
+                } else {
+                    "Off — this is opt-in. DJProxy only routes your traffic; your real GPS location is " +
+                        "never touched, even if the mock-location app-op happens to be granted."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = DjColors.TextTertiary,
+                modifier = Modifier.padding(top = 10.dp),
+            )
+        }
     }
 }
 
@@ -124,9 +195,19 @@ private fun NetworkInfoPanel(vpnState: VpnState) {
     }
 }
 
+/**
+ * Renders every registered [SettingsPanel] EXCEPT the location lane's own panel (id "location") when
+ * the user has not opted in to location matching — see [LocationMatchingToggleCard]. This is a
+ * display-only filter in the ui lane; it never reaches into the location lane's internals, it just
+ * declines to render its panel until the persisted opt-in choice says otherwise.
+ */
 @Composable
-private fun FeaturePanelsHost() {
-    val panels = remember { FeatureRegistry.settingsPanels.sortedBy { it.order } }
+private fun FeaturePanelsHost(locationMatchingEnabled: Boolean) {
+    val panels = remember(locationMatchingEnabled) {
+        FeatureRegistry.settingsPanels
+            .filter { locationMatchingEnabled || it.id != "location" }
+            .sortedBy { it.order }
+    }
     if (panels.isEmpty()) {
         GlassSurface(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.fillMaxWidth()) {

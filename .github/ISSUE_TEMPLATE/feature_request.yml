@@ -1,0 +1,61 @@
+name: Feature request
+description: Suggest an idea or improvement for DJProxy
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion! Please describe the problem first, then your
+        proposed solution — this helps us evaluate trade-offs (especially around
+        the leak-safety guarantees the VPN engine relies on).
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Is this related to a limitation or frustration you've run into?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Describe the solution you'd like
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any alternative solutions or features you've considered.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Proxy config parsing / import formats
+        - VPN engine / packet routing (Packets, TcpFlow, DnsInterceptor)
+        - UI / UX
+        - Security / credential storage
+        - CI / build / tooling
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Screenshots, mockups, links, or related issues.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues/discussions and this hasn't already been suggested.
+          required: true

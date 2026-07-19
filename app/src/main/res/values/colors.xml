@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- DJProxy brand palette — dark-first glassmorphism, shield/tunnel identity.
+         Shared across the XML theme here and (independently) the Compose theme in ui/theme/Color.kt. -->
+
+    <!-- base surfaces -->
+    <color name="djp_bg">#0B1220</color>
+    <color name="djp_bg_elevated">#131C33</color>
+    <color name="djp_surface_glass">#1A2340</color>
+    <color name="djp_outline">#2A3654</color>
+
+    <!-- brand accent (shield gradient endpoints) -->
+    <color name="djp_accent_cyan">#22D3EE</color>
+    <color name="djp_accent_indigo">#6D5CF6</color>
+    <color name="djp_accent_core">#EAFCFF</color>
+
+    <!-- semantic -->
+    <color name="djp_success">#34D399</color>
+    <color name="djp_warning">#FBBF24</color>
+    <color name="djp_error">#F87171</color>
+
+    <!-- text -->
+    <color name="djp_text_primary">#F5F8FF</color>
+    <color name="djp_text_secondary">#9AA6C4</color>
+
+    <!-- legacy XML theme aliases -->
+    <color name="colorPrimary">@color/djp_accent_cyan</color>
+    <color name="colorPrimaryDark">@color/djp_bg</color>
+    <color name="colorAccent">@color/djp_accent_indigo</color>
+</resources>

@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DJProxy adaptive icon — foreground layer.
+  Concept: a faceted shield housing a receding tunnel of rings that converge to one bright
+  point — "everything routed, nothing escapes." All geometry sits inside the 66dp adaptive-icon
+  safe zone (centered box from 21,21 to 87,87 on this 108x108 viewport).
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- outer shield facet, cyan-to-indigo diagonal gradient -->
+    <path android:pathData="M54,23 L80,32 L80,60 L54,86 L28,60 L28,32 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="28"
+                android:startY="23"
+                android:endX="80"
+                android:endY="86"
+                android:startColor="#22D3EE"
+                android:centerColor="#4C7EF3"
+                android:endColor="#6D5CF6" />
+        </aapt:attr>
+    </path>
+
+    <!-- crisp shield edge for definition at small sizes -->
+    <path
+        android:pathData="M54,23 L80,32 L80,60 L54,86 L28,60 L28,32 Z"
+        android:fillColor="#00000000"
+        android:strokeColor="#0B1220"
+        android:strokeWidth="2"
+        android:strokeAlpha="0.35" />
+
+    <!-- receding tunnel rings, brightening toward the vanishing point -->
+    <path
+        android:pathData="M34,53 A20,20 0 1,0 74,53 A20,20 0 1,0 34,53 Z"
+        android:fillColor="#00000000"
+        android:strokeColor="#0B1220"
+        android:strokeWidth="2.4"
+        android:strokeAlpha="0.55" />
+    <path
+        android:pathData="M39,53 A15,15 0 1,0 69,53 A15,15 0 1,0 39,53 Z"
+        android:fillColor="#00000000"
+        android:strokeColor="#EAFCFF"
+        android:strokeWidth="2.4"
+        android:strokeAlpha="0.75" />
+    <path
+        android:pathData="M44,53 A10,10 0 1,0 64,53 A10,10 0 1,0 44,53 Z"
+        android:fillColor="#00000000"
+        android:strokeColor="#EAFCFF"
+        android:strokeWidth="2.6"
+        android:strokeAlpha="0.92" />
+
+    <!-- the vanishing point: the one secure destination everything is routed to -->
+    <path android:pathData="M50,53 A4,4 0 1,0 58,53 A4,4 0 1,0 50,53 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="54"
+                android:centerY="53"
+                android:gradientRadius="4"
+                android:startColor="#FFFFFF"
+                android:endColor="#BEF8FF" />
+        </aapt:attr>
+    </path>
+</vector>

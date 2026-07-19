@@ -1,0 +1,44 @@
+# Gradle
+.gradle/
+build/
+app/build/
+**/build/
+.kotlin/
+
+# Local configuration (machine-specific, contains SDK path)
+local.properties
+
+# Signing / secrets — NEVER commit keystores or credentials
+*.jks
+*.keystore
+*.p12
+*.pem
+*keystore.properties
+*signing.properties
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+.navigation/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# NDK / native build outputs
+*.so
+!app/src/main/jniLibs/**/*.so
+
+# Logs / misc build artifacts
+*.log
+*.hprof
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Misc local dirs not part of the project source
+AIandroid-sdk/

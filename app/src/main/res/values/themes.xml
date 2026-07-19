@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!--
+      DJProxy platform theme. The app itself is 100% Jetpack Compose (Material 3 via
+      ui/theme/Theme.kt); this XML theme only controls the window before Compose draws
+      (splash-to-content background) and system bar chrome, so it must not depend on any
+      AppCompat/Material Components library that isn't a project dependency.
+    -->
+    <style name="Theme.DJProxy" parent="android:Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@color/djp_bg</item>
+        <item name="android:statusBarColor">@color/djp_bg</item>
+        <item name="android:navigationBarColor">@color/djp_bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:colorPrimary">@color/djp_accent_cyan</item>
+        <item name="android:colorAccent">@color/djp_accent_indigo</item>
+        <item name="android:enforceStatusBarContrast" tools:targetApi="q">false</item>
+        <item name="android:enforceNavigationBarContrast" tools:targetApi="q">false</item>
+    </style>
+</resources>

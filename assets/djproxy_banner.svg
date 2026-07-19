@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1280" height="320" viewBox="0 0 1280 320" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1280" y2="320" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0A0F1E"/>
+      <stop offset="0.55" stop-color="#0D1526"/>
+      <stop offset="1" stop-color="#131C33"/>
+    </linearGradient>
+    <linearGradient id="shield" x1="120" y1="60" x2="360" y2="260" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22D3EE"/>
+      <stop offset="0.5" stop-color="#4C7EF3"/>
+      <stop offset="1" stop-color="#6D5CF6"/>
+    </linearGradient>
+    <radialGradient id="core" cx="240" cy="160" r="12" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#BEF8FF"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="1180" cy="60" r="140" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3DD6F0" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#3DD6F0" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1280" height="320" fill="url(#bg)"/>
+  <circle cx="1180" cy="60" r="140" fill="url(#glow)"/>
+
+  <!-- shield + receding tunnel rings, same geometry as the app launcher icon -->
+  <g>
+    <polygon points="240,60 340,88 340,172 240,260 140,172 140,88" fill="url(#shield)"/>
+    <polygon points="240,60 340,88 340,172 240,260 140,172 140,88" fill="none" stroke="#0B1220" stroke-opacity="0.35" stroke-width="3"/>
+
+    <circle cx="240" cy="166" r="56" fill="none" stroke="#0B1220" stroke-opacity="0.55" stroke-width="4"/>
+    <circle cx="240" cy="166" r="42" fill="none" stroke="#EAFCFF" stroke-opacity="0.75" stroke-width="4"/>
+    <circle cx="240" cy="166" r="28" fill="none" stroke="#EAFCFF" stroke-opacity="0.92" stroke-width="4.5"/>
+    <circle cx="240" cy="166" r="11" fill="url(#core)"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="420" y="178" font-family="Segoe UI, Roboto, -apple-system, Arial, sans-serif"
+        font-size="72" font-weight="600" fill="#F5F8FF" letter-spacing="1">DJProxy</text>
+  <text x="422" y="220" font-family="Segoe UI, Roboto, -apple-system, Arial, sans-serif"
+        font-size="24" font-weight="400" fill="#9AA6C4" letter-spacing="0.5">Everything routed. Nothing escapes.</text>
+</svg>

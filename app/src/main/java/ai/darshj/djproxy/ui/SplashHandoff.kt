@@ -26,6 +26,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -119,10 +120,21 @@ fun SplashHandoff(onFinished: () -> Unit, modifier: Modifier = Modifier, start: 
                     size = Size(size.width - inset * 2, size.height - inset * 2),
                     style = stroke,
                 )
-                // inner squircle body hint (matches ConnectRing IDLE body colour)
+                // inner obsidian sphere hint (matches the ObsidianOrb IDLE body: a graphite radial,
+                // highlight above-left sinking to void — a truthful preview of the in-app orb).
+                val hintR = size.minDimension * 0.28f
+                val reveal = ringSweep.value / 360f
                 drawCircle(
-                    color = DjColors.AccentCyan.copy(alpha = 0.12f * (ringSweep.value / 360f)),
-                    radius = size.minDimension * 0.28f,
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            DjColors.OrbHighlight.copy(alpha = 0.9f * reveal),
+                            DjColors.Slate.copy(alpha = 0.9f * reveal),
+                            DjColors.VoidBlack.copy(alpha = 0.9f * reveal),
+                        ),
+                        center = Offset(c.x - hintR * 0.35f, c.y - hintR * 0.35f),
+                        radius = hintR * 1.15f,
+                    ),
+                    radius = hintR,
                     center = c,
                 )
             }

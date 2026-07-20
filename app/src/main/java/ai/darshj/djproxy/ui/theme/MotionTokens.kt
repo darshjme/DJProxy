@@ -58,6 +58,32 @@ object MotionTokens {
     const val ONION_ORBIT_MS = 8000
     const val BLOOM_FLASH_MS = 500
     const val SPLASH_MS = 900
+
+    // --- v8 obsidian-orb motion (§orb). The orb reads ALL its durations/amplitudes from here so
+    // ObsidianOrb.kt hard-codes nothing; it reuses BREATH_/SPIN_/PULSE_/SHAKE_/BLOOM_FLASH_MS above
+    // wherever they already fit and only ADDS the few genuinely orb-specific values below. ---
+
+    /** Idle "float" bob period — deliberately co-prime-ish with WOBBLE so the two never phase-lock. */
+    const val ORB_FLOAT_MS = 3800
+    /** Idle "wobble" sway period — a different period from FLOAT gives a non-repeating Lissajous drift. */
+    const val ORB_WOBBLE_MS = 5200
+    /** Idle breathing period — the same gentle cadence as the v4 ring breath. */
+    const val ORB_BREATHE_MS = BREATH_IDLE_MS
+    /** Specular highlight orbit period at rest — slow enough to read as a 3D surface turning, not a spin. */
+    const val ORB_SPECULAR_DRIFT_MS = 9000
+
+    /** Peak vertical float travel (dp) at full IDLE amplitude. */
+    const val ORB_FLOAT_DP = 6f
+    /** Peak horizontal wobble travel (dp) at full IDLE amplitude. */
+    const val ORB_WOBBLE_DP = 4f
+    /** Peak breathing scale delta (±) at full IDLE amplitude. */
+    const val ORB_BREATHE_SCALE = 0.06f
+    /** Busy-state (VALIDATING/CONNECTING/STOPPING) float+wobble damping — motion pulls in ~40%. */
+    const val ORB_BUSY_DAMP = 0.4f
+    /** CONNECTED settle — breathing survives at ~1/3, float/wobble go to zero. */
+    const val ORB_CONNECTED_DAMP = 0.34f
+    /** ERROR peak shake travel (dp) of the sphere centre for the single damped flinch. */
+    const val ORB_SHAKE_DP = 4f
 }
 
 /**

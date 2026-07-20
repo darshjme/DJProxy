@@ -1,11 +1,14 @@
 package ai.darshj.djproxy.ui
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.PowerManager
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -20,12 +23,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
@@ -33,6 +38,8 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -55,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import ai.darshj.djproxy.freeproxy.FreeProxyEntry
 import ai.darshj.djproxy.store.ProxyOrigin
 import ai.darshj.djproxy.store.ProxyStatus
+import ai.darshj.djproxy.store.SavedOvpn
 import ai.darshj.djproxy.store.SavedProxy
 import ai.darshj.djproxy.ui.adaptive.responsiveContentPadding
 import ai.darshj.djproxy.ui.components.GlassSurface
@@ -88,7 +96,69 @@ data class VpnGateRow(
     val score: Long?,
     val speedMbps: Double?,
     val directlyDialable: Boolean,
+    // v2 country-grouping fields. Defaulted so the existing `ui/ProxyScreen.kt` mapping site keeps
+    // compiling untouched; that site (owned by the orb-theme feature) should populate them from the
+    // VpnGateServer (countryShort/countryLong/flagEmoji) — see the cross-feature note in the SSOT. Until
+    // it does, [groupByCountry] falls back to the combined [country] string so grouping still works.
+    val countryShort: String = "",
+    val countryLong: String = "",
+    val flag: String = "",
+) {
+    /** The grouping key: the ISO code when present, else the combined "flag country" display string. */
+    val groupKey: String get() = countryShort.trim().ifBlank { country.trim() }
+
+    /** Header label for this row's country group — prefers the split fields, else the combined string. */
+    val groupLabel: String
+        get() = "${flag.trim()} ${countryLong.trim()}".trim().ifBlank { country.trim() }.ifBlank { "Unknown" }
+}
+
+/**
+ * One country section of the VPN Gate catalog (v2). Built purely by [groupByCountry] from the loaded
+ * [VpnGateRow]s: rows sharing a [VpnGateRow.groupKey] collapse into a group carrying the section header
+ * bits ([flag] + [countryLong]/[label]) plus the group's [bestPing] (min, ignoring unknown) and
+ * [bestScore] (max) for the header pills. [rows] stay sorted score-desc / ping-asc within the group.
+ */
+data class VpnGateCountryGroup(
+    val key: String,
+    val label: String,
+    val flag: String,
+    val countryShort: String,
+    val countryLong: String,
+    val bestPing: Int?,
+    val bestScore: Long?,
+    val rows: List<VpnGateRow>,
 )
+
+/**
+ * Pure, Compose-free grouping of the VPN Gate catalog by country (v2, testable in isolation). Rows are
+ * bucketed by [VpnGateRow.groupKey]; each bucket's rows are sorted score-desc then ping-asc (unknown
+ * ping last), and the buckets themselves are ordered best-score-desc then best-ping-asc — the SAME order
+ * `VpnGateCsvParser` applies to the flat list (so the grouped view keeps the "best first" feel).
+ */
+private fun groupByCountry(rows: List<VpnGateRow>): List<VpnGateCountryGroup> {
+    val rowComparator = compareByDescending<VpnGateRow> { it.score ?: Long.MIN_VALUE }
+        .thenBy { it.pingMs ?: Int.MAX_VALUE }
+    return rows
+        .groupBy { it.groupKey }
+        .map { (key, groupRows) ->
+            val sorted = groupRows.sortedWith(rowComparator)
+            val head = sorted.first()
+            VpnGateCountryGroup(
+                key = key,
+                label = head.groupLabel,
+                flag = head.flag,
+                countryShort = head.countryShort,
+                countryLong = head.countryLong.ifBlank { head.country },
+                bestPing = groupRows.mapNotNull { it.pingMs }.filter { it >= 0 }.minOrNull(),
+                bestScore = groupRows.mapNotNull { it.score }.maxOrNull(),
+                rows = sorted,
+            )
+        }
+        .sortedWith(
+            compareByDescending<VpnGateCountryGroup> { it.bestScore ?: Long.MIN_VALUE }
+                .thenBy { it.bestPing ?: Int.MAX_VALUE },
+        )
+}
 
 /**
  * v6 (§5.2) — the Servers surface: a full route (not a sheet) hosting the proxy vault, the free public
@@ -144,6 +214,18 @@ fun ServersScreen(
     onUseVpnGate: (VpnGateRow) -> Unit = {},
     onSaveVpnGate: (VpnGateRow) -> Unit = {},
     onExportVpnGate: (VpnGateRow) -> Unit = {},
+    // v2 VPN Gate profile hand-off + saved-profile vault. All defaulted so the `ui/ProxyScreen.kt` call
+    // site (orb-theme's file) keeps compiling until the integrator wires them — see the SSOT cross-feature
+    // note. connect==no-handler is surfaced by [vpnGateNoOpenVpnApp] (the ViewModel flips it), and the
+    // guidance dialog below shows the install-an-OpenVPN-app copy.
+    savedOvpn: List<SavedOvpn> = emptyList(),
+    onConnectVpnGate: (VpnGateRow) -> Unit = {},
+    onSaveOvpnProfile: (VpnGateRow) -> Unit = {},
+    onConnectSavedOvpn: (String) -> Unit = {},
+    onShareSavedOvpn: (String) -> Unit = {},
+    onDeleteSavedOvpn: (String) -> Unit = {},
+    vpnGateNoOpenVpnApp: Boolean = false,
+    onDismissVpnGateNoOpenVpnApp: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var tab by rememberSaveable { mutableStateOf(ServersTab.Saved) }
@@ -163,6 +245,10 @@ fun ServersScreen(
     // is not gated.
     var freeConsent by rememberSaveable { mutableStateOf(false) }
     var pendingFree by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+    // v2: the VPN Gate client-side country filter (null = "All"). Purely over already-loaded rows — no
+    // refetch — so it survives config changes but never opens a socket.
+    var vpnGateCountryFilter by rememberSaveable { mutableStateOf<String?>(null) }
 
     // Auto "check all" once the Saved list first arrives, unless the device is in battery saver.
     var autoCheckedSaved by rememberSaveable { mutableStateOf(false) }
@@ -232,12 +318,22 @@ fun ServersScreen(
                 )
                 ServersTab.VpnGate -> vpnGateTab(
                     rows = vpnGate,
+                    savedOvpn = savedOvpn,
                     busy = vpnGateBusy,
                     error = vpnGateError,
+                    countryFilter = vpnGateCountryFilter,
+                    onCountryFilter = { vpnGateCountryFilter = it },
                     onRefresh = onRefreshVpnGate,
                     onUse = { row -> gateFree { onUseVpnGate(row) } },
                     onSave = { row -> gateFree { onSaveVpnGate(row) } },
-                    onExport = onExportVpnGate,
+                    // Connect / Share hand the .ovpn to an EXTERNAL OpenVPN app — no socket opens here,
+                    // so they are NOT behind the untrusted-server consent gate (parity with Export/Share).
+                    onConnect = onConnectVpnGate,
+                    onSaveProfile = { row -> gateFree { onSaveOvpnProfile(row) } },
+                    onShare = onExportVpnGate,
+                    onConnectSaved = onConnectSavedOvpn,
+                    onShareSaved = onShareSavedOvpn,
+                    onDeleteSaved = onDeleteSavedOvpn,
                 )
             }
         }
@@ -270,6 +366,57 @@ fun ServersScreen(
             },
         )
     }
+
+    // v2: "no OpenVPN app installed" guidance — shown when a Connect hand-off found no external handler.
+    // DJProxy does NOT tunnel OpenVPN, so the honest fix is to install an app that does; the two buttons
+    // open the canonical OpenVPN clients on Google Play.
+    if (vpnGateNoOpenVpnApp) {
+        NoOpenVpnAppDialog(onDismiss = onDismissVpnGateNoOpenVpnApp)
+    }
+}
+
+/** The install-an-OpenVPN-app dialog (v2). Opens the canonical clients on Play; honest-scope copy. */
+@Composable
+private fun NoOpenVpnAppDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    fun openPlay(pkg: String) {
+        runCatching {
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$pkg"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }.onFailure {
+            runCatching {
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$pkg"))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }
+        }
+        onDismiss()
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = DjColors.CharcoalRaised,
+        title = { Text("No OpenVPN app found", color = DjColors.TextPrimary) },
+        text = {
+            Text(
+                "DJProxy speaks SOCKS5/HTTP, not OpenVPN — it hands the profile to an external OpenVPN " +
+                    "app to connect. Install OpenVPN Connect or OpenVPN for Android, then tap Connect again.",
+                color = DjColors.TextSecondary,
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { openPlay("net.openvpn.openvpn") }) {
+                Text("OpenVPN Connect", color = DjColors.AccentCyan)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { openPlay("de.blinkt.openvpn") }) {
+                Text("OpenVPN for Android", color = DjColors.TextSecondary)
+            }
+        },
+    )
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -443,12 +590,20 @@ private fun androidx.compose.foundation.lazy.LazyListScope.freeTab(
 
 private fun androidx.compose.foundation.lazy.LazyListScope.vpnGateTab(
     rows: List<VpnGateRow>,
+    savedOvpn: List<SavedOvpn>,
     busy: Boolean,
     error: String?,
+    countryFilter: String?,
+    onCountryFilter: (String?) -> Unit,
     onRefresh: () -> Unit,
     onUse: (VpnGateRow) -> Unit,
     onSave: (VpnGateRow) -> Unit,
-    onExport: (VpnGateRow) -> Unit,
+    onConnect: (VpnGateRow) -> Unit,
+    onSaveProfile: (VpnGateRow) -> Unit,
+    onShare: (VpnGateRow) -> Unit,
+    onConnectSaved: (String) -> Unit,
+    onShareSaved: (String) -> Unit,
+    onDeleteSaved: (String) -> Unit,
 ) {
     item { VpnGateCaveatCard() }
 
@@ -482,18 +637,131 @@ private fun androidx.compose.foundation.lazy.LazyListScope.vpnGateTab(
     error?.let { item { ErrorCard(title = "Couldn't refresh VPN Gate", body = it) } }
 
     if (rows.isEmpty() && !busy && error == null) {
-        item {
-            EmptyState(
-                title = "No VPN Gate servers yet",
-                body = "Tap Refresh to pull the public VPN Gate list. These publish OpenVPN profiles — " +
-                    "export one and open it in an external OpenVPN app. DJProxy does not tunnel VPN Gate itself.",
-            )
+        // Even with no catalog rows, still surface any saved profiles so they aren't stranded.
+        savedProfilesSection(savedOvpn, onConnectSaved, onShareSaved, onDeleteSaved)
+        if (savedOvpn.isEmpty()) {
+            item {
+                EmptyState(
+                    title = "No VPN Gate servers yet",
+                    body = "Tap Refresh to pull the public VPN Gate list. These publish OpenVPN profiles — " +
+                        "Connect opens one in an external OpenVPN app. DJProxy does not tunnel VPN Gate itself.",
+                )
+            }
         }
         return
     }
 
-    items(rows, key = { it.id }) { row ->
-        VpnGateRowItem(row = row, onUse = onUse, onSave = onSave, onExport = onExport)
+    // v2: group the loaded catalog by country. The filter (null = All) is purely client-side over the
+    // already-loaded rows — never a refetch. A stale filter key that no longer matches degrades to All.
+    val groups = groupByCountry(rows)
+    val effectiveFilter = countryFilter?.takeIf { f -> groups.any { it.key == f } }
+    val shownGroups = effectiveFilter?.let { f -> groups.filter { it.key == f } } ?: groups
+
+    if (groups.size > 1) {
+        item {
+            VpnGateCountryFilterRow(
+                groups = groups,
+                selected = effectiveFilter,
+                onSelect = onCountryFilter,
+            )
+        }
+    }
+
+    shownGroups.forEach { group ->
+        item(key = "grp-${group.key}") { VpnGateGroupHeader(group) }
+        items(group.rows, key = { it.id }) { row ->
+            VpnGateRowItem(
+                row = row,
+                onUse = onUse,
+                onSave = onSave,
+                onConnect = onConnect,
+                onSaveProfile = onSaveProfile,
+                onShare = onShare,
+            )
+        }
+    }
+
+    savedProfilesSection(savedOvpn, onConnectSaved, onShareSaved, onDeleteSaved)
+}
+
+/** The 'Saved profiles' sub-section: reused for both the populated and empty-catalog states. */
+private fun androidx.compose.foundation.lazy.LazyListScope.savedProfilesSection(
+    savedOvpn: List<SavedOvpn>,
+    onConnectSaved: (String) -> Unit,
+    onShareSaved: (String) -> Unit,
+    onDeleteSaved: (String) -> Unit,
+) {
+    if (savedOvpn.isEmpty()) return
+    item(key = "saved-header") {
+        Text(
+            "Saved profiles · ${savedOvpn.size}",
+            style = MaterialTheme.typography.labelLarge,
+            color = DjColors.TextTertiary,
+            modifier = Modifier.fillMaxWidth().padding(top = DjSpacing.sm),
+        )
+    }
+    items(savedOvpn, key = { "saved-${it.id}" }) { profile ->
+        SavedOvpnRowItem(
+            profile = profile,
+            onConnect = { onConnectSaved(profile.id) },
+            onShare = { onShareSaved(profile.id) },
+            onDelete = { onDeleteSaved(profile.id) },
+        )
+    }
+}
+
+@Composable
+private fun VpnGateCountryFilterRow(
+    groups: List<VpnGateCountryGroup>,
+    selected: String?,
+    onSelect: (String?) -> Unit,
+) {
+    val chipColors = FilterChipDefaults.filterChipColors(
+        labelColor = DjColors.TextSecondary,
+        selectedContainerColor = DjColors.AccentCyan.copy(alpha = 0.22f),
+        selectedLabelColor = DjColors.TextPrimary,
+    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(DjSpacing.sm),
+    ) {
+        FilterChip(
+            selected = selected == null,
+            onClick = { onSelect(null) },
+            label = { Text("All") },
+            colors = chipColors,
+        )
+        groups.forEach { group ->
+            val label = "${group.flag} ${group.countryShort.ifBlank { group.countryLong }}".trim()
+                .ifBlank { group.label }
+            FilterChip(
+                selected = selected == group.key,
+                onClick = { onSelect(if (selected == group.key) null else group.key) },
+                label = { Text(label, maxLines = 1) },
+                colors = chipColors,
+            )
+        }
+    }
+}
+
+@Composable
+private fun VpnGateGroupHeader(group: VpnGateCountryGroup) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = DjSpacing.xs),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(DjSpacing.sm),
+    ) {
+        Text(
+            group.label,
+            style = MaterialTheme.typography.titleSmall,
+            color = DjColors.TextPrimary,
+        )
+        MetricPill("${group.rows.size} servers", DjColors.AccentIndigo)
+        Spacer(Modifier.weight(1f))
+        group.bestPing?.let { MetricPill("best ${it} ms", DjColors.AccentCyan) }
+        group.bestScore?.let { MetricPill("score $it", DjColors.Emerald) }
     }
 }
 
@@ -502,24 +770,20 @@ private fun VpnGateRowItem(
     row: VpnGateRow,
     onUse: (VpnGateRow) -> Unit,
     onSave: (VpnGateRow) -> Unit,
-    onExport: (VpnGateRow) -> Unit,
+    onConnect: (VpnGateRow) -> Unit,
+    onSaveProfile: (VpnGateRow) -> Unit,
+    onShare: (VpnGateRow) -> Unit,
 ) {
     GlassSurface(modifier = Modifier.fillMaxWidth().animateContentSize()) {
         Column(Modifier.fillMaxWidth()) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DjSpacing.sm)) {
                 Text(
-                    row.country.ifBlank { "Unknown" },
+                    row.host,
                     style = MaterialTheme.typography.titleSmall,
                     color = DjColors.TextPrimary,
                 )
                 if (row.directlyDialable) MetricPill("Directly usable", DjColors.Emerald)
             }
-            Text(
-                row.host,
-                style = MaterialTheme.typography.bodySmall,
-                color = DjColors.TextTertiary,
-                modifier = Modifier.padding(top = 2.dp),
-            )
             Row(
                 modifier = Modifier.padding(top = DjSpacing.sm),
                 horizontalArrangement = Arrangement.spacedBy(DjSpacing.sm),
@@ -531,7 +795,7 @@ private fun VpnGateRowItem(
 
             if (!row.directlyDialable) {
                 Text(
-                    "OpenVPN-only — open in an external OpenVPN app.",
+                    "OpenVPN-only — Connect opens it in an external OpenVPN app.",
                     style = MaterialTheme.typography.labelSmall,
                     color = DjColors.Amber,
                     modifier = Modifier.padding(top = DjSpacing.sm),
@@ -540,10 +804,11 @@ private fun VpnGateRowItem(
 
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = DjSpacing.xs),
-                horizontalArrangement = Arrangement.spacedBy(DjSpacing.sm),
+                horizontalArrangement = Arrangement.spacedBy(DjSpacing.xs),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (row.directlyDialable) {
+                    // The rare row that embeds a SOCKS/HTTP proxy: keep the in-app Use + proxy-vault Save.
                     TextButton(onClick = { onUse(row) }) {
                         Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp), tint = DjColors.AccentCyan)
                         Spacer(Modifier.width(DjSpacing.xs))
@@ -554,12 +819,72 @@ private fun VpnGateRowItem(
                         Spacer(Modifier.width(DjSpacing.xs))
                         Text("Save", color = DjColors.AccentCyan)
                     }
+                } else {
+                    // OpenVPN-only: primary Connect (hand to external app) + Save profile to the .ovpn vault.
+                    TextButton(onClick = { onConnect(row) }) {
+                        Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp), tint = DjColors.AccentCyan)
+                        Spacer(Modifier.width(DjSpacing.xs))
+                        Text("Connect", color = DjColors.AccentCyan)
+                    }
+                    TextButton(onClick = { onSaveProfile(row) }) {
+                        Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(18.dp), tint = DjColors.AccentCyan)
+                        Spacer(Modifier.width(DjSpacing.xs))
+                        Text("Save profile", color = DjColors.AccentCyan)
+                    }
                 }
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = { onExport(row) }) {
+                TextButton(onClick = { onShare(row) }) {
                     Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp), tint = DjColors.TextSecondary)
                     Spacer(Modifier.width(DjSpacing.xs))
-                    Text("Export .ovpn", color = DjColors.TextSecondary)
+                    Text("Share", color = DjColors.TextSecondary)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SavedOvpnRowItem(
+    profile: SavedOvpn,
+    onConnect: () -> Unit,
+    onShare: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    GlassSurface(modifier = Modifier.fillMaxWidth().animateContentSize()) {
+        Column(Modifier.fillMaxWidth()) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DjSpacing.sm)) {
+                Text(
+                    "${profile.flagEmoji} ${profile.name}".trim(),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = DjColors.TextPrimary,
+                )
+            }
+            Text(
+                "${profile.countryLong.ifBlank { "Unknown" }}  ·  ${profile.hostName}",
+                style = MaterialTheme.typography.bodySmall,
+                color = DjColors.TextTertiary,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = DjSpacing.xs),
+                horizontalArrangement = Arrangement.spacedBy(DjSpacing.xs),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = onConnect) {
+                    Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp), tint = DjColors.AccentCyan)
+                    Spacer(Modifier.width(DjSpacing.xs))
+                    Text("Connect", color = DjColors.AccentCyan)
+                }
+                TextButton(onClick = onShare) {
+                    Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp), tint = DjColors.TextSecondary)
+                    Spacer(Modifier.width(DjSpacing.xs))
+                    Text("Share", color = DjColors.TextSecondary)
+                }
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = onDelete) {
+                    Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(18.dp), tint = DjColors.Rose)
+                    Spacer(Modifier.width(DjSpacing.xs))
+                    Text("Delete", color = DjColors.Rose)
                 }
             }
         }
@@ -576,9 +901,10 @@ private fun VpnGateCaveatCard() {
         Column(Modifier.fillMaxWidth()) {
             Text("VPN Gate — OpenVPN servers", style = MaterialTheme.typography.titleSmall, color = DjColors.TextPrimary)
             Text(
-                "DJProxy speaks SOCKS5/HTTP, not OpenVPN, so it can't tunnel these directly. Export a " +
-                    "server's profile and open it in an external OpenVPN app. A few servers also expose a " +
-                    "directly-usable proxy — those show a Use action. These are untrusted public servers.",
+                "DJProxy speaks SOCKS5/HTTP, not OpenVPN, so it can't tunnel these directly. Connect hands a " +
+                    "server's profile to an external OpenVPN app (or Save it for later); Share is a fallback. " +
+                    "A few servers also expose a directly-usable proxy — those show a Use action. These are " +
+                    "untrusted public servers.",
                 style = MaterialTheme.typography.bodySmall,
                 color = DjColors.TextSecondary,
                 modifier = Modifier.padding(top = 4.dp),

@@ -64,10 +64,14 @@ import kotlin.math.sin
  * a determinate arc tracking real Tor bootstrap progress (§3). VpnState.stage remains the sole
  * authority for VALIDATING -> CONNECTED -> ERROR; PREPARING_TOR is a purely visual pre-stage.
  *
- * Composition, outside-in: ambient bloom -> progress arc (tri-tone sweep) -> morphing superellipse
+ * Composition, outside-in: ambient bloom -> progress arc (steel sweep) -> morphing superellipse
  * body (softens on CONNECTED, hardens on ERROR) -> power glyph core. The morph is hand-rolled on a
  * Canvas (superellipse exponent + lobe modulation animated per state), so the ring is fully
  * self-contained and needs no shape library.
+ *
+ * v8: superseded as the shipped hero by [ObsidianOrb], which honours this same
+ * `(stage, onClick, …)` contract; ConnectRing is retained (obsidian-recolored) as the reference
+ * state-machine surface so the two can never diverge on behaviour.
  */
 @Composable
 fun ConnectRing(
@@ -452,8 +456,11 @@ private data class RingVisual(
     val spinMs: Int,
 )
 
-private fun cyanBody() = Brush.verticalGradient(listOf(DjColors.AccentCyan, DjColors.AccentIndigo))
-private fun connectingBody() = Brush.verticalGradient(listOf(DjColors.AccentCyan, DjColors.AccentViolet))
+// v8 obsidian: the idle/connecting bodies are graphite spheres, not steel fills — the only reactive
+// colour lives in the edge-light/glow, never the body. (ConnectRing is retained but ObsidianOrb is
+// now the shipped hero; these builders are kept obsidian so the file stays coherent if referenced.)
+private fun cyanBody() = Brush.verticalGradient(listOf(DjColors.Slate, DjColors.VoidBlack))
+private fun connectingBody() = Brush.verticalGradient(listOf(DjColors.CharcoalRaised, DjColors.VoidBlack))
 private fun emeraldBody() = Brush.verticalGradient(listOf(DjColors.Emerald, DjColors.EmeraldDeep))
 private fun amberBody() = Brush.verticalGradient(listOf(DjColors.Amber, DjColors.AmberDeep))
 private fun roseBody() = Brush.verticalGradient(listOf(DjColors.Rose, DjColors.RoseDeep))

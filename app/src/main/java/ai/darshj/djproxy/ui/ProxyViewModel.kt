@@ -1,5 +1,6 @@
 package ai.darshj.djproxy.ui
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import ai.darshj.djproxy.config.ConfigImporter
@@ -15,6 +16,7 @@ import ai.darshj.djproxy.proxy.ValidationResult
 import ai.darshj.djproxy.store.ProxyOrigin
 import ai.darshj.djproxy.store.ProxyStatus
 import ai.darshj.djproxy.store.ProxyStore
+import ai.darshj.djproxy.store.SavedOvpn
 import ai.darshj.djproxy.store.SavedProxy
 import ai.darshj.djproxy.store.StatusChecker
 import ai.darshj.djproxy.tor.TorGateway
@@ -746,19 +748,40 @@ class ProxyViewModel : ViewModel() {
     }
 
     // ---------------------------------------------------------------------------------------------
-    // --- vpngate (DESIGN_V6 §VPN-Gate) ---
+    // --- vpngate (DESIGN_V6 §VPN-Gate; v2 §VPN-Gate-v2) ---
     // The vpngate lane is an honest OpenVPN-server BROWSER, not a tunnel. Its catalog + refresh state
     // live in the single VpnGateController the lane's Registrar publishes to VpnGateGateway; the ui
-    // reads that Gateway directly for the list/refresh-state (like Tor's bootstrap flow), and only the
-    // two mutating actions funnel back through here so they reuse the EXISTING apply/store seams:
-    //   - [useVpnGate]  routes the RARE directly-dialable row through applyDialable -> the same
-    //                   [reuseConfig]/[VpnController.apply] path every other source uses, and
-    //   - [saveVpnGate] persists that row's dial config with FREE_PUBLIC provenance.
-    // Export/Share of the .ovpn is a pure ui-side controller.shareOvpn(context, ..) call (needs a
-    // Context this ViewModel deliberately does not hold), so it is not mirrored here.
+    // reads that Gateway directly for the list/refresh-state (like Tor's bootstrap flow), and the
+    // mutating actions funnel back through here so they reuse the EXISTING apply/store/vault seams:
+    //   - [useVpnGate]      routes the RARE directly-dialable row through applyDialable -> the same
+    //                       [reuseConfig]/[VpnController.apply] path every other source uses,
+    //   - [saveVpnGate]     persists that row's dial PROXY config into the encrypted proxy vault, and
+    //   - v2 adds an OpenVPN-profile path that never claims to tunnel: [connectOvpnGate] hands a
+    //     catalog row's .ovpn to an EXTERNAL OpenVPN app (one-tap FileProvider VIEW), [saveOvpnGate]
+    //     stashes it in the anonymous [OvpnVault], and the saved-profile row actions ([connectSavedOvpn]
+    //     / [shareSavedOvpn] / [deleteSavedOvpn]) reuse the same vault + controller.
+    // Connect/Share need a Context this ViewModel deliberately does not hold, so those methods take one
+    // from the ui call site (mirroring the existing controller.shareOvpn(context, ..) pattern).
     // ---------------------------------------------------------------------------------------------
 
     private var vpnGateController: ai.darshj.djproxy.vpngate.VpnGateController? = null
+
+    /**
+     * The saved-`.ovpn` profiles (VPN Gate v2), read straight from the lane's single [OvpnVault] the
+     * Registrar published — exactly the "read the lane's own Gateway holder" pattern [blockAdsMode]
+     * uses. Empty flow when the lane is absent (the ui hides the section anyway).
+     */
+    val savedOvpn: StateFlow<List<SavedOvpn>> =
+        ai.darshj.djproxy.vpngate.VpnGateGateway.ovpnVault?.saved
+            ?: MutableStateFlow(emptyList<SavedOvpn>()).asStateFlow()
+
+    /**
+     * One-shot "no external OpenVPN app" signal. [connectOvpnGate]/[connectSavedOvpn] flip this true when
+     * the hand-off finds no external handler; the ui shows the install-an-app guidance and clears it via
+     * [dismissVpnGateNoOpenVpnApp]. Keeps the honest "DJProxy does not tunnel OpenVPN" contract visible.
+     */
+    private val _vpnGateNoOpenVpnApp = MutableStateFlow(false)
+    val vpnGateNoOpenVpnApp: StateFlow<Boolean> = _vpnGateNoOpenVpnApp.asStateFlow()
 
     /** Bind to the single controller the VpnGateRegistrar published. Called once by the host activity. */
     fun attachVpnGate() {
@@ -773,12 +796,74 @@ class ProxyViewModel : ViewModel() {
         }
     }
 
-    /** Persist a directly-dialable VPN Gate row into the vault, keeping FREE_PUBLIC provenance. */
+    /** Persist a directly-dialable VPN Gate row's PROXY config into the (encrypted) vault, FREE_PUBLIC. */
     fun saveVpnGate(server: ai.darshj.djproxy.vpngate.VpnGateServer) {
         val store = _store.value ?: return
         val config = server.dialConfig ?: return
         viewModelScope.launch {
             store.save(server.hostName, config, ProxyOrigin.FREE_PUBLIC)
         }
+    }
+
+    /**
+     * v2 one-tap Connect for a CATALOG row: hand the decoded `.ovpn` to an external OpenVPN app. Synchronous
+     * (the profile text is already in memory + the launch must run on the ui thread); flips
+     * [vpnGateNoOpenVpnApp] when no external handler exists so the ui shows install guidance.
+     */
+    fun connectOvpnGate(context: Context, server: ai.darshj.djproxy.vpngate.VpnGateServer) {
+        val ctl = vpnGateController ?: ai.darshj.djproxy.vpngate.VpnGateGateway.controller ?: return
+        if (!ctl.connectOvpn(context, server.hostName, server.ovpn)) {
+            _vpnGateNoOpenVpnApp.value = true
+        }
+    }
+
+    /** v2: stash a catalog row's `.ovpn` into the anonymous [OvpnVault] for one-tap reuse later. */
+    fun saveOvpnGate(server: ai.darshj.djproxy.vpngate.VpnGateServer) {
+        val vault = ai.darshj.djproxy.vpngate.VpnGateGateway.ovpnVault ?: return
+        viewModelScope.launch {
+            vault.save(
+                server.hostName,
+                server.countryShort,
+                server.countryLong,
+                server.hostName,
+                server.ovpn,
+            )
+        }
+    }
+
+    /**
+     * v2 Connect for a SAVED profile: resolve its stored `.ovpn` text (suspend, off the compose frame) then
+     * hand it to an external OpenVPN app. Flips [vpnGateNoOpenVpnApp] when no handler exists.
+     */
+    fun connectSavedOvpn(context: Context, id: String) {
+        val ctl = vpnGateController ?: ai.darshj.djproxy.vpngate.VpnGateGateway.controller ?: return
+        val vault = ai.darshj.djproxy.vpngate.VpnGateGateway.ovpnVault ?: return
+        viewModelScope.launch {
+            val text = vault.resolve(id) ?: return@launch
+            val name = savedOvpn.value.firstOrNull { it.id == id }?.name ?: "profile"
+            if (!ctl.connectOvpn(context, name, text)) _vpnGateNoOpenVpnApp.value = true
+        }
+    }
+
+    /** v2 Share fallback for a SAVED profile: resolve its text then ride it out as `ACTION_SEND` text. */
+    fun shareSavedOvpn(context: Context, id: String) {
+        val ctl = vpnGateController ?: ai.darshj.djproxy.vpngate.VpnGateGateway.controller ?: return
+        val vault = ai.darshj.djproxy.vpngate.VpnGateGateway.ovpnVault ?: return
+        viewModelScope.launch {
+            val text = vault.resolve(id) ?: return@launch
+            val name = savedOvpn.value.firstOrNull { it.id == id }?.name ?: "profile"
+            ctl.shareOvpnText(context, name, text)
+        }
+    }
+
+    /** v2: drop a saved profile (metadata + its stored `.ovpn` text) from the vault. */
+    fun deleteSavedOvpn(id: String) {
+        val vault = ai.darshj.djproxy.vpngate.VpnGateGateway.ovpnVault ?: return
+        viewModelScope.launch { vault.delete(id) }
+    }
+
+    /** Clear the [vpnGateNoOpenVpnApp] guidance flag once the ui has shown it. */
+    fun dismissVpnGateNoOpenVpnApp() {
+        _vpnGateNoOpenVpnApp.value = false
     }
 }

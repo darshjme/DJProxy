@@ -1,9 +1,14 @@
 package ai.darshj.djproxy.vpngate
 
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.os.Parcelable
+import androidx.core.content.FileProvider
 import ai.darshj.djproxy.core.ProxyConfig
 import ai.darshj.djproxy.vpn.LogBus
+import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,8 +23,11 @@ import kotlinx.coroutines.sync.withLock
  *
  * HONEST CONTRACT (SSOT `vpngate_scope`): this controls a server **catalog/browser**, NOT a tunnel.
  *   - [refresh] / [loadCache] populate [servers] from [VpnGateSource].
- *   - [shareOvpn] hands the decoded `.ovpn` to an external OpenVPN app via `ACTION_SEND` EXTRA_TEXT — no
- *     FileProvider, no new manifest/res surface (SSOT acceptance).
+ *   - [connectOvpn] is the v2 one-tap hand-off: it stages the decoded `.ovpn` in app-private cache and
+ *     fires an `ACTION_VIEW` `content://` intent (FileProvider) at an EXTERNAL OpenVPN app, excluding
+ *     DJProxy itself from the chooser and returning `false` when no external handler exists (the caller
+ *     then shows install guidance). DJProxy still does NOT tunnel OpenVPN — this only opens the profile.
+ *   - [shareOvpn] / [shareOvpnText] keep the original `ACTION_SEND` EXTRA_TEXT path as the Share fallback.
  *   - [applyDialable] routes the RARE directly-dialable row through the caller's `VpnController.apply`
  *     seam (passed in, so this lane never hard-depends on the vpn controller and stays unit-testable).
  *
@@ -95,21 +103,123 @@ class VpnGateController(
     }
 
     /**
-     * Hand the decoded `.ovpn` of [server] to another app via a share chooser (`ACTION_SEND` EXTRA_TEXT).
-     * No FileProvider, no temp file — the profile rides as text. Safe: swallows any launch failure.
+     * The v2 one-tap **Connect (open in VPN app)** hand-off. Unlike [shareOvpn] (which rides the profile
+     * as plain text through a Share sheet), this stages the `.ovpn` as a real file and launches an
+     * `ACTION_VIEW` `content://` intent at an external OpenVPN app so a single tap lands the user in that
+     * app's import screen. Honest scope is unchanged: DJProxy does NOT tunnel OpenVPN — it only opens the
+     * profile in an app that does.
+     *
+     * Steps (SSOT `vpngate-v2` acceptance):
+     *  1. write [ovpn] to `context.cacheDir/ovpn/<sanitized>.ovpn` (app-private, no storage permission);
+     *  2. derive `authority = context.packageName + ".fileprovider"` — **never hardcoded**, so it tracks
+     *     the `.debug` applicationId suffix — and mint a FileProvider `content://` uri;
+     *  3. build `ACTION_VIEW` with MIME `application/x-openvpn-profile` +
+     *     `FLAG_GRANT_READ_URI_PERMISSION` + `FLAG_ACTIVITY_NEW_TASK`;
+     *  4. enumerate handlers and EXCLUDE DJProxy's own package (it self-registers for this MIME);
+     *  5. return `false` when there is definitively no external handler → the caller shows install
+     *     guidance. Everything is wrapped in [runCatching]; a missing handler at launch time throws
+     *     `ActivityNotFoundException`, which is caught and also yields `false`.
+     *
+     * @return `true` when the profile was handed to an external app; `false` when no external OpenVPN
+     *         app is available (or staging/launch failed) — the caller surfaces the install-an-app copy.
      */
-    fun shareOvpn(context: Context, server: VpnGateServer) {
+    fun connectOvpn(context: Context, fileBaseName: String, ovpn: String): Boolean = runCatching {
+        // (1) Stage the profile in the FileProvider-exported app-private cache dir (res/xml/file_paths).
+        val dir = File(context.cacheDir, "ovpn").apply { mkdirs() }
+        val file = File(dir, "${sanitizeBaseName(fileBaseName)}.ovpn")
+        file.writeText(ovpn)
+
+        // (2) Runtime-derived authority (NEVER hardcoded — survives the .debug applicationId suffix).
+        val authority = context.packageName + ".fileprovider"
+        val uri: Uri = FileProvider.getUriForFile(context, authority, file)
+
+        // (3) A content:// VIEW of the OpenVPN-profile MIME, with a read grant + a fresh task.
+        val view = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uri, OVPN_MIME)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        // (4) Enumerate handlers and drop DJProxy itself (it self-registers for this MIME). When the
+        //     query sees handlers but every one is us, that is a definitive "no external app".
+        val self = context.packageName
+        val handlers = context.packageManager.queryIntentActivities(view, 0)
+            .mapNotNull { it.activityInfo?.packageName }
+        val external = handlers.filter { it != self }
+
+        // (5) Definitive "none" → guide the user. (An EMPTY query is inconclusive on API 30+ without the
+        //     <queries> manifest block, so we DON'T bail there — we still attempt the launch below and
+        //     let ActivityNotFoundException be the source of truth via the getOrElse guard.)
+        if (handlers.isNotEmpty() && external.isEmpty()) {
+            LogBus.i(TAG, "connectOvpn: no external OpenVPN app registered for $OVPN_MIME")
+            return@runCatching false
+        }
+
+        val launch = when (external.size) {
+            1 -> Intent(view).setPackage(external.single())                // exactly one → straight in
+            else -> Intent.createChooser(view, CHOOSER_TITLE).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                // Keep DJProxy out of its own chooser (API 24+ honours this; older APIs ignore it).
+                selfComponents(context, view)?.let { putExtra(Intent.EXTRA_EXCLUDE_COMPONENTS, it) }
+            }
+        }
+        context.startActivity(launch)
+        true
+    }.getOrElse {
+        // ActivityNotFoundException (no handler at all) or any staging/launch failure → guide the user.
+        LogBus.w(TAG, "connectOvpn failed: ${it.message}")
+        false
+    }
+
+    /**
+     * Hand the decoded `.ovpn` of [server] to another app via a share chooser (`ACTION_SEND` EXTRA_TEXT).
+     * The Share **fallback** for [connectOvpn]. No FileProvider, no temp file — the profile rides as text.
+     * Safe: swallows any launch failure. Delegates to [shareOvpnText] so saved-profile rows (which hold no
+     * [VpnGateServer]) can share the same way.
+     */
+    fun shareOvpn(context: Context, server: VpnGateServer) =
+        shareOvpnText(context, server.hostName, server.ovpn)
+
+    /**
+     * Text-based Share of an arbitrary `.ovpn` body — used by both the catalog row ([shareOvpn]) and a
+     * saved-profile row (after `OvpnVault.resolve`). Rides the profile as `ACTION_SEND` EXTRA_TEXT so it
+     * needs no FileProvider surface. Safe: swallows any launch failure.
+     */
+    fun shareOvpnText(context: Context, fileBaseName: String, ovpn: String) {
         runCatching {
             val send = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
-                putExtra(Intent.EXTRA_SUBJECT, "${server.hostName}.ovpn")
-                putExtra(Intent.EXTRA_TITLE, "${server.hostName}.ovpn")
-                putExtra(Intent.EXTRA_TEXT, server.ovpn)
+                putExtra(Intent.EXTRA_SUBJECT, "$fileBaseName.ovpn")
+                putExtra(Intent.EXTRA_TITLE, "$fileBaseName.ovpn")
+                putExtra(Intent.EXTRA_TEXT, ovpn)
             }
-            val chooser = Intent.createChooser(send, "Open .ovpn in an OpenVPN app")
+            val chooser = Intent.createChooser(send, CHOOSER_TITLE)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(chooser)
         }.onFailure { LogBus.w(TAG, "Share .ovpn failed: ${it.message}") }
+    }
+
+    /**
+     * DJProxy's OWN activities that resolve [view], as a `ComponentName[]` for [Intent.EXTRA_EXCLUDE_COMPONENTS]
+     * so the app never lists itself in its own "open in OpenVPN app" chooser. Null when none resolve (a
+     * missing `<queries>` block on API 30+ hides them) — the chooser then falls back to unfiltered, which
+     * is acceptable graceful degradation.
+     */
+    private fun selfComponents(context: Context, view: Intent): Array<Parcelable>? {
+        val self = context.packageName
+        val components = context.packageManager.queryIntentActivities(view, 0)
+            .mapNotNull { it.activityInfo }
+            .filter { it.packageName == self }
+            .map { ComponentName(it.packageName, it.name) as Parcelable }
+        return components.takeIf { it.isNotEmpty() }?.toTypedArray()
+    }
+
+    /** Keep the staged filename to the SSOT-mandated `[A-Za-z0-9._-]` set; empty → a stable fallback. */
+    private fun sanitizeBaseName(raw: String): String {
+        val cleaned = buildString {
+            for (ch in raw.trim()) {
+                append(if (ch in 'A'..'Z' || ch in 'a'..'z' || ch in '0'..'9' || ch in "._-") ch else '_')
+            }
+        }.trim('_')
+        return cleaned.ifEmpty { "profile" }
     }
 
     /**
@@ -138,6 +248,10 @@ class VpnGateController(
 
     companion object {
         private const val TAG = "VpnGate"
+
+        /** The OpenVPN-profile MIME external apps register for (and DJProxy self-registers for). */
+        const val OVPN_MIME = "application/x-openvpn-profile"
+        private const val CHOOSER_TITLE = "Open .ovpn in an OpenVPN app"
     }
 }
 

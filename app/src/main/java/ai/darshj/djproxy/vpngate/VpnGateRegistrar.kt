@@ -2,6 +2,7 @@ package ai.darshj.djproxy.vpngate
 
 import android.content.Context
 import androidx.startup.Initializer
+import ai.darshj.djproxy.store.SharedPreferencesOvpnVault
 import ai.darshj.djproxy.vpn.FeatureRegistry
 import ai.darshj.djproxy.vpn.LogBus
 
@@ -9,9 +10,10 @@ import ai.darshj.djproxy.vpn.LogBus
  * The vpngate lane's single wiring point (mirror of `tor.TorRegistrar`) — an androidx.startup
  * [Initializer]. The platform lane references it from the manifest's `InitializationProvider`
  * `<meta-data>`; androidx.startup constructs it once per process, before any Activity/Service, and it:
- *   1. builds the real [RemoteVpnGateSource] (prefs-backed cache) + the [VpnGateController],
- *   2. publishes the controller into the lane's own [VpnGateGateway] holder (the servers-tab reads it;
- *      null → the VPN Gate tab is hidden), and
+ *   1. builds the real [RemoteVpnGateSource] (prefs-backed cache) + the [VpnGateController] and the v2
+ *      saved-`.ovpn` vault ([SharedPreferencesOvpnVault], its own private `djproxy_ovpn_vault` prefs),
+ *   2. publishes BOTH the controller and the vault into the lane's own [VpnGateGateway] holder (the
+ *      servers-tab reads the controller; null → the VPN Gate tab is hidden), and
  *   3. contributes [VpnGateSettingsPanel] via the core `FeatureRegistry.addSettingsPanel` seam.
  *
  * No core file is edited — this is the ONLY point where the lane attaches. Idempotent:
@@ -38,9 +40,11 @@ class VpnGateRegistrar : Initializer<VpnGateController> {
             val source = RemoteVpnGateSource.create(appContext)
             val controller = VpnGateController(source)
             VpnGateGateway.controller = controller
+            // v2: publish the saved-.ovpn vault (its own private prefs file) into the same lane holder.
+            VpnGateGateway.ovpnVault = SharedPreferencesOvpnVault.fromContext(appContext)
             FeatureRegistry.addSettingsPanel(VpnGateSettingsPanel(controller))
             installed = controller
-            LogBus.i("VpnGate", "VPN Gate lane registered (catalog browser + .ovpn hand-off; not a tunnel)")
+            LogBus.i("VpnGate", "VPN Gate lane registered (catalog browser + .ovpn hand-off + saved vault; not a tunnel)")
             return controller
         }
     }

@@ -1,5 +1,7 @@
 package ai.darshj.djproxy.vpngate
 
+import ai.darshj.djproxy.store.OvpnVault
+
 /**
  * The vpngate lane's ui-facing holder (mirror of `tor.TorGateway`). `FeatureRegistry` is a **core** file
  * and may not be edited to add a `vpnGateController` slot, so — exactly like `TorGateway.controller` —
@@ -14,8 +16,17 @@ package ai.darshj.djproxy.vpngate
  *
  * Set once by [VpnGateRegistrar] (an androidx.startup Initializer) before any Activity/Service. A plain
  * `@Volatile` write is enough — registration is idempotent and single-writer.
+ *
+ * v2 adds the [ovpnVault] holder alongside [controller], published by the SAME [VpnGateRegistrar] pass:
+ * the saved-`.ovpn` vault ([OvpnVault]) is a lane-owned singleton (like [controller]), because core's
+ * `FeatureRegistry` may not gain an `ovpnVault` slot. The ui/ViewModel READ this single instance the
+ * same idempotent single-writer way they read [controller] — no core file touched.
  */
 object VpnGateGateway {
     @Volatile
     var controller: VpnGateController? = null
+
+    /** The saved-`.ovpn` vault (VPN Gate v2). Null until [VpnGateRegistrar] publishes it. */
+    @Volatile
+    var ovpnVault: OvpnVault? = null
 }

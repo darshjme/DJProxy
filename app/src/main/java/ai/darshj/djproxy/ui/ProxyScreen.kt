@@ -70,8 +70,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ai.darshj.djproxy.tor.TorGateway
 import ai.darshj.djproxy.ui.adaptive.responsiveContentPadding
 import ai.darshj.djproxy.ui.components.CenteredScreen
-import ai.darshj.djproxy.ui.components.ConnectRing
 import ai.darshj.djproxy.ui.components.DjMonogram
+import ai.darshj.djproxy.ui.components.ObsidianOrb
 import ai.darshj.djproxy.ui.components.GlassSurface
 import ai.darshj.djproxy.ui.components.StageLabel
 import ai.darshj.djproxy.ui.sheets.ImportSheet
@@ -140,6 +140,9 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
     // Populate the VPN Gate list from the local cache on first composition — no outbound tap (parity
     // with the free tab's on-entry cache load); the network pull stays behind the explicit Refresh.
     LaunchedEffect(vpnGateCtl) { vpnGateCtl?.loadCache() }
+    // v2 VPN Gate: saved-.ovpn vault + the "no OpenVPN app installed" one-shot guidance flag.
+    val savedOvpn by viewModel.savedOvpn.collectAsStateWithLifecycle()
+    val vpnGateNoOpenVpnApp by viewModel.vpnGateNoOpenVpnApp.collectAsStateWithLifecycle()
 
     var route by rememberSaveable(stateSaver = RouteSaver) { mutableStateOf<Route>(Route.Home) }
     var sheet by rememberSaveable { mutableStateOf(HomeSheet.None) }
@@ -267,6 +270,9 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
                             score = s.score.takeIf { it > 0 },
                             speedMbps = s.speedMbps.takeIf { s.speed > 0 },
                             directlyDialable = s.directlyDialable,
+                            countryShort = s.countryShort,
+                            countryLong = s.countryLong,
+                            flag = s.flagEmoji,
                         )
                     },
                     vpnGateBusy = vpnGateState is ai.darshj.djproxy.vpngate.VpnGateRefreshState.Loading,
@@ -282,6 +288,21 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
                     onExportVpnGate = { row ->
                         vpnGateServers.firstOrNull { it.key == row.id }?.let { vpnGateCtl?.shareOvpn(onboardingContext, it) }
                     },
+                    // v2: one-tap "Connect (open in OpenVPN app)" for a catalog row, save its .ovpn to the
+                    // vault, and the saved-profile row actions (connect / share / delete) + the
+                    // "install an OpenVPN app" guidance dialog. Kills the old export→manual-reimport dance.
+                    savedOvpn = savedOvpn,
+                    onConnectVpnGate = { row ->
+                        vpnGateServers.firstOrNull { it.key == row.id }?.let { viewModel.connectOvpnGate(onboardingContext, it) }
+                    },
+                    onSaveOvpnProfile = { row ->
+                        vpnGateServers.firstOrNull { it.key == row.id }?.let { viewModel.saveOvpnGate(it) }
+                    },
+                    onConnectSavedOvpn = { id -> viewModel.connectSavedOvpn(onboardingContext, id) },
+                    onShareSavedOvpn = { id -> viewModel.shareSavedOvpn(onboardingContext, id) },
+                    onDeleteSavedOvpn = viewModel::deleteSavedOvpn,
+                    vpnGateNoOpenVpnApp = vpnGateNoOpenVpnApp,
+                    onDismissVpnGateNoOpenVpnApp = viewModel::dismissVpnGateNoOpenVpnApp,
                 )
                 Route.Settings -> BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                     LazyColumn(
@@ -481,11 +502,11 @@ private fun HomeContent(
                 // floating small in empty space; identical 200dp on a folded phone.
                 val ringSize = (maxWidth * 0.6f).coerceIn(200.dp, 280.dp)
                 if (torActive) TorOnionOrbit(size = ringSize * 1.12f)
-                ConnectRing(
+                ObsidianOrb(
                     stage = vpnState.stage,
                     onClick = {
                         // First run (no source, not connected): the first tap steers to "add a
-                        // proxy" instead of dropping a validation error under the ring.
+                        // proxy" instead of dropping a validation error under the orb.
                         if (!hasSource &&
                             vpnState.stage != VpnStage.CONNECTED &&
                             vpnState.stage != VpnStage.RECONNECTING
@@ -495,7 +516,7 @@ private fun HomeContent(
                             viewModel.onRingTap()
                         }
                     },
-                    ringSize = ringSize,
+                    orbSize = ringSize,
                     torBootstrapPct = torBootstrap,
                 )
             }

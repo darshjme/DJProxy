@@ -31,8 +31,10 @@ private val DjDarkColorScheme = darkColorScheme(
     onErrorContainer = DjColors.TextPrimary,
 )
 
-/** Full-bleed background wash behind every screen: a faint radial bloom of the brand gradient
- *  sinking into void-black, so glass surfaces have depth to refract against. */
+/** Full-bleed background wash behind every screen: a faint radial bloom of the (now steel-grey)
+ *  brand stop sinking into obsidian-black, so glass surfaces have depth to refract against. In v8
+ *  the inner stop is a near-neutral grey, so the plate reads as a soft charcoal vignette, not a
+ *  coloured glow. */
 val DjBackgroundBrush: Brush
     get() = Brush.radialGradient(
         colors = listOf(
@@ -44,9 +46,10 @@ val DjBackgroundBrush: Brush
     )
 
 /**
- * v4 expressive full-bleed wash, now animatable. [torTint] (0..1) lerps the inner brand stop
- * indigo -> Tor purple so the whole atmosphere drifts as Tor engages (§1.1). torTint = 0 reproduces
- * the v3 [DjBackgroundBrush] exactly, so nothing regresses for the non-Tor path.
+ * v4 expressive full-bleed wash, now animatable. [torTint] (0..1) lerps the inner stop from the
+ * neutral steel-grey toward the muted graphite Tor purple so the whole atmosphere drifts subtly as
+ * Tor engages (§1.1). torTint = 0 reproduces [DjBackgroundBrush] exactly, so nothing regresses for
+ * the non-Tor path.
  */
 fun djBackgroundBrush(torTint: Float = 0f): Brush {
     val inner = lerp(
@@ -65,8 +68,11 @@ val DjTorBrush: Brush
     get() = Brush.linearGradient(listOf(DjColors.TorPurple, DjColors.TorPurpleDeep))
 
 /**
- * The signature ring sweep: a cyan -> violet -> indigo -> cyan tri-tone sweepGradient that reads as
- * a single continuous loop of light travelling around the connect ring.
+ * The signature sweep, now monochrome: a steel near-white -> light-steel -> mid-steel -> steel
+ * sweepGradient that reads as a single continuous loop of cool edge-light. In v8 it is used only as
+ * the swirling progress AURA *around* the obsidian orb (never on the black sphere body) and by
+ * [ai.darshj.djproxy.ui.components.DjMonogram]; the token values carry the recolor so this stays a
+ * one-line reference to the brand steel.
  */
 fun djBrandTriBrush(center: Offset): Brush = Brush.sweepGradient(
     0.0f to DjColors.AccentCyan,

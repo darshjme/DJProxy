@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  vpngate-v2 lane (platform seam): FileProvider path map for the one-tap "Connect (open in VPN
+  app)" hand-off. VpnGateController.connectOvpn writes the VPN Gate .ovpn profile to
+  context.cacheDir/ovpn/<sanitized-name>.ovpn, then vends it as a content:// URI through the
+  ${applicationId}.fileprovider provider declared in AndroidManifest.xml. cache-path maps
+  context.getCacheDir() -> the "ovpn/" subdirectory, so the shared URI is app-private and needs no
+  external-storage permission. Keep the sub-path in lockstep with connectOvpn's write dir.
+-->
+<paths>
+    <cache-path name="ovpn" path="ovpn/" />
+</paths>

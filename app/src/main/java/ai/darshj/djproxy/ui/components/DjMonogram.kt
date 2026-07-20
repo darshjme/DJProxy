@@ -19,9 +19,9 @@ import ai.darshj.djproxy.ui.theme.DjColors
 import ai.darshj.djproxy.ui.theme.DjShapes
 
 /**
- * The app's lettermark (§ui-center): a bold "DJ" glyph pair painted with the exact same
- * cyan -> violet -> indigo sweep as [ai.darshj.djproxy.ui.theme.djBrandTriBrush] (the ConnectRing /
- * SplashHandoff ring), inside a dark rounded badge so the gradient reads crisp against any
+ * The app's lettermark (§ui-center): a bold "DJ" glyph pair painted with the exact same monochrome
+ * steel sweep as [ai.darshj.djproxy.ui.theme.djBrandTriBrush] (the SplashHandoff sweep / orb aura),
+ * inside a dark rounded badge so the gradient reads crisp against any
  * background. One composable serves every size DJProxy needs it at — ~36-40dp beside the header
  * wordmark ([showBadge] on), larger and badge-less floating over the Splash wash, or as a plain
  * standalone mark on the About screen.
@@ -31,7 +31,8 @@ import ai.darshj.djproxy.ui.theme.DjShapes
  * legibility at small sizes. It is still genuinely *Canvas*-drawn (not a `Text` composable) because
  * the gradient has to be painted as the glyph's own fill: `Paint.shader` takes a platform
  * `android.graphics.Shader`, not a Compose [Brush], so the sweep is rebuilt here as a plain
- * `SweepGradient` with the identical stops as `djBrandTriBrush` rather than trying to convert one.
+ * `SweepGradient` with the identical steel stops as `djBrandTriBrush` rather than trying to convert
+ * one. v8: the stops are the obsidian-theme steel tokens (no more cyan/violet rainbow).
  */
 @Composable
 fun DjMonogram(
@@ -65,10 +66,10 @@ fun DjMonogram(
                 shader = SweepGradient(
                     cx, cy,
                     intArrayOf(
-                        DjColors.AccentCyan.toArgb(),
+                        DjColors.SteelEdge.toArgb(),
                         DjColors.AccentViolet.toArgb(),
-                        DjColors.AccentIndigo.toArgb(),
-                        DjColors.AccentCyan.toArgb(),
+                        DjColors.SteelEdgeDeep.toArgb(),
+                        DjColors.SteelEdge.toArgb(),
                     ),
                     floatArrayOf(0f, 0.33f, 0.66f, 1f),
                 )

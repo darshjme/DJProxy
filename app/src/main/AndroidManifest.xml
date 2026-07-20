@@ -41,6 +41,23 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
+    <!--
+      vpngate-v2 lane (platform seam): package-visibility declaration (targetSdk 35 / API 30+). The
+      one-tap "Connect (open in VPN app)" hand-off in VpnGateController.connectOvpn calls
+      queryIntentActivities/resolveActivity to (a) exclude DJProxy's own self-registration from the
+      chooser and (b) detect whether ANY external OpenVPN app can handle
+      application/x-openvpn-profile so it can show install-guidance when none exists. Without this
+      <queries>, on API 30+ the query returns empty and DJProxy would wrongly report "no app
+      installed". The launch itself still works via ActivityNotFoundException-guarded startActivity;
+      this block only fixes the presence-check that drives the guidance copy.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="application/x-openvpn-profile" />
+        </intent>
+    </queries>
+
     <application
         android:name=".DjProxyApp"
         android:allowBackup="false"
@@ -278,6 +295,27 @@
             <meta-data
                 android:name="ai.darshj.djproxy.vpngate.VpnGateRegistrar"
                 android:value="androidx.startup" />
+        </provider>
+
+        <!--
+          vpngate-v2 lane (platform seam): FileProvider that vends the app-private
+          cacheDir/ovpn/<name>.ovpn file as a content:// URI so VpnGateController.connectOvpn can
+          hand a VPN Gate .ovpn profile to an EXTERNAL OpenVPN app via ACTION_VIEW +
+          FLAG_GRANT_READ_URI_PERMISSION. DJProxy does NOT tunnel OpenVPN itself — this is a pure
+          hand-off. The authority is "${applicationId}.fileprovider"; ${applicationId} auto-appends
+          the .debug build suffix (build.gradle.kts:71), matching the authority VpnGateController
+          derives at runtime from context.packageName + ".fileprovider" (never hardcoded). Paths are
+          declared in res/xml/file_paths.xml (cache-path ovpn/). exported=false + grantUriPermissions
+          keep it a per-Intent, read-only grant — no broad export.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
         </provider>
 
     </application>

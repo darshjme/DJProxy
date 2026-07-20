@@ -36,9 +36,21 @@ object TunConfig {
  */
 object TunBuilder {
 
-    fun configure(b: VpnService.Builder, config: ProxyConfig) {
+    fun configure(b: VpnService.Builder, config: ProxyConfig, selfPackage: String) {
         b.setSession(TunConfig.SESSION)
         b.setMtu(TunConfig.MTU)
+
+        // Exclude ONLY our own app from the tun. This is the robust, OS-enforced way (what Postern
+        // does) to keep DJProxy's own sockets — the LocalSocksServer's dial to the upstream proxy and
+        // the native engine — OUT of the tunnel. Per-socket protect() is unreliable on some OEMs
+        // (observed on Samsung/Android 16): the proxy socket re-entered the tun and every flow looped
+        // back to the proxy address forever ("connected but no internet"). This excludes ONLY our
+        // package, so EVERY OTHER installed app still egresses fully through the tun — no leak.
+        try {
+            b.addDisallowedApplication(selfPackage)
+        } catch (_: android.content.pm.PackageManager.NameNotFoundException) {
+            // Can't happen for our own package, but the API declares it; ignore if it ever does.
+        }
 
         // Interface addresses (v4 for real traffic; v6 ULA only to make the v6 capture route valid).
         b.addAddress(TunConfig.TUN_ADDRESS, TunConfig.TUN_PREFIX)
@@ -60,7 +72,7 @@ object TunBuilder {
             b.setMetered(false)
         }
 
-        // Deliberately absent: no tunnel-bypass, no per-app allow list, no per-app deny list.
-        // Every installed app egresses through this one tun with no exceptions.
+        // No tunnel-bypass and no per-app ALLOW list. The only exclusion is our OWN app (above), which
+        // is required so the proxy dial goes direct; every OTHER installed app is fully captured.
     }
 }

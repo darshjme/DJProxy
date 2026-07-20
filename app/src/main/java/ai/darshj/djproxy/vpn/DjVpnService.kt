@@ -166,7 +166,7 @@ class DjVpnService : VpnService() {
 
             // 1) Establish the tun with the full leak-proof route/DNS setup.
             val builder = Builder()
-            TunBuilder.configure(builder, config)
+            TunBuilder.configure(builder, config, packageName)
             val pfd = builder.establish()
                 ?: throw IllegalStateException("VPN permission not granted (establish returned null)")
             tunPfd = pfd

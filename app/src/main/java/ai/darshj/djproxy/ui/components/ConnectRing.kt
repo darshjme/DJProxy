@@ -11,11 +11,15 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,8 +37,12 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.Canvas
 import ai.darshj.djproxy.ui.theme.DjColors
@@ -49,9 +57,9 @@ import kotlin.math.sign
 import kotlin.math.sin
 
 /**
- * The v4 hero (§1.5). Wraps — never replaces — [ConnectButton]: it honours the exact same
- * `(stage: VpnStage, onClick)` contract and the same [stageLabel] word, so state and visuals can
- * never drift. The only addition is [torBootstrapPct]: when non-null and the tunnel has not yet
+ * The v4 hero (§1.5). The single primary CTA — it honours a `(stage: VpnStage, onClick)` contract
+ * and the [stageLabel] word (defined below), so state and visuals can never drift. It renders a
+ * determinate [torBootstrapPct] pre-stage: when non-null and the tunnel has not yet
  * begun its own VALIDATING/CONNECTING, the ring renders the UI-synthetic `PREPARING_TOR` stage with
  * a determinate arc tracking real Tor bootstrap progress (§3). VpnState.stage remains the sole
  * authority for VALIDATING -> CONNECTED -> ERROR; PREPARING_TOR is a purely visual pre-stage.
@@ -66,6 +74,7 @@ fun ConnectRing(
     stage: VpnStage,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    ringSize: Dp = 200.dp,
     torBootstrapPct: Int? = null,
 ) {
     val preparingTor = torBootstrapPct != null &&
@@ -73,6 +82,10 @@ fun ConnectRing(
     val visual = ringVisualFor(stage, preparingTor)
     val busy = stage == VpnStage.VALIDATING || stage == VpnStage.CONNECTING ||
         stage == VpnStage.STOPPING || preparingTor
+    // The Tor bootstrap pre-stage is the ONE "busy" state that must stay tappable: a second tap is the
+    // documented cancel gesture (ProxyViewModel.onRingTap -> cancelTorPrepare), so Tor bootstrap is
+    // never an uncancellable multi-minute hang. Every genuine tunnel busy-stage stays non-interactive.
+    val clickable = !busy || preparingTor
 
     val animate = rememberAnimationsEnabled()
     val haptics = LocalHapticFeedback.current
@@ -156,37 +169,46 @@ fun ConnectRing(
     }
 
     val interaction = remember { MutableInteractionSource() }
+    // Immediate down-press acknowledgment (~120ms) so the primary CTA never reads as unresponsive,
+    // even before the state machine advances.
+    val pressed by interaction.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = if (pressed) 0.96f else 1f,
+        animationSpec = tween(120),
+        label = "press",
+    )
 
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
-            .size(200.dp)
-            .selectable(
-                selected = stage == VpnStage.CONNECTED,
+            .size(ringSize)
+            .scale(pressScale)
+            .clickable(
                 interactionSource = interaction,
                 indication = null,
-                enabled = !busy,
+                enabled = clickable,
                 onClick = onClick,
             )
             .semantics {
+                role = Role.Button
                 contentDescription = if (preparingTor) {
-                    "Building Tor circuit ${torBootstrapPct ?: 0} percent"
+                    "Building Tor circuit ${torBootstrapPct ?: 0} percent. Tap to cancel."
                 } else {
                     stageLabel(stage)
                 }
+                stateDescription = if (stage == VpnStage.CONNECTED) "Connected" else "Disconnected"
             },
     ) {
         Canvas(
-            modifier = Modifier
-                .size(200.dp)
-                .scale(1f),
+            modifier = Modifier.size(ringSize),
         ) {
             val c = Offset(size.width / 2f, size.height / 2f)
             val bloomAlpha = when {
                 stage == VpnStage.CONNECTED -> 0.28f + bloomFlash * 0.32f
                 stage == VpnStage.RECONNECTING -> 0.20f + pulse * 0.2f
                 busy -> 0.22f
-                else -> 0.14f + (breath) * 0.08f
+                // A touch more "invite" pulse at rest so the IDLE ring reads as the live primary CTA.
+                else -> 0.14f + (breath) * 0.12f
             }
 
             // 1) ambient bloom (200 dp radial)
@@ -200,8 +222,8 @@ fun ConnectRing(
                 center = c,
             )
 
-            // 2) progress arc (168 dp)
-            val arcInset = (size.minDimension - 168.dp.toPx()) / 2f
+            // 2) progress arc (84% of the ring)
+            val arcInset = (size.minDimension - (ringSize * 0.84f).toPx()) / 2f
             val arcSize = Size(size.width - arcInset * 2f, size.height - arcInset * 2f)
             val arcTopLeft = Offset(arcInset, arcInset)
             val strokePx = 6.dp.toPx()
@@ -221,7 +243,7 @@ fun ConnectRing(
 
             // 3) morphing superellipse body (128 dp), translated by the ERROR shake
             rotate(0f, pivot = c) {
-                val bodyR = 64.dp.toPx() * bodyScale
+                val bodyR = (ringSize * 0.32f).toPx() * bodyScale
                 val path = superellipsePath(
                     center = Offset(c.x + shakeOffset.dp.toPx(), c.y),
                     radius = bodyR,
@@ -353,10 +375,11 @@ private fun DrawScope.drawProgressArc(
                 useCenter = false, topLeft = topLeft, size = arcSize, style = stroke)
         }
         else -> {
-            // IDLE — thin dormant outline
-            drawArc(color = DjColors.AccentCyan.copy(alpha = 0.25f), startAngle = 0f, sweepAngle = 360f,
+            // IDLE — dormant outline, but unmistakably interactive (raised alpha + full stroke) so the
+            // one-tap connect target invites at rest rather than reading as decoration.
+            drawArc(color = DjColors.AccentCyan.copy(alpha = 0.45f), startAngle = 0f, sweepAngle = 360f,
                 useCenter = false, topLeft = topLeft, size = arcSize,
-                style = Stroke(width = strokePx * 0.5f))
+                style = Stroke(width = strokePx))
         }
     }
 }
@@ -392,6 +415,30 @@ private fun superellipsePath(
 }
 
 private fun Double.pow(e: Float): Float = Math.pow(this, e.toDouble()).toFloat()
+
+/** Human label for the current stage — the single source used by the ring's a11y description and by
+ *  [StageLabel]. (Relocated here from the now-deleted dead ConnectButton so nothing can drift.) */
+fun stageLabel(stage: VpnStage): String = when (stage) {
+    VpnStage.IDLE -> "Connect"
+    VpnStage.VALIDATING -> "Validating…"
+    VpnStage.CONNECTING -> "Connecting…"
+    VpnStage.CONNECTED -> "Connected — tap to stop"
+    VpnStage.RECONNECTING -> "Reconnecting…"
+    VpnStage.STOPPING -> "Disconnecting…"
+    VpnStage.ERROR -> "Failed — tap to retry"
+}
+
+/** Small text label under the ring restating the stage in words — colour alone never carries meaning
+ *  here; the words always do too. */
+@Composable
+fun StageLabel(stage: VpnStage, modifier: Modifier = Modifier) {
+    Text(
+        text = stageLabel(stage),
+        style = MaterialTheme.typography.titleSmall,
+        color = DjColors.TextPrimary,
+        modifier = modifier.padding(top = 12.dp),
+    )
+}
 
 /** All per-state ring visuals in one place so nothing drifts. */
 private data class RingVisual(

@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- DJProxy branded-splash emblem — density-independent VECTOR replacement for the former raster
+     splash_icon.png bitmaps (owner bar: "crisp vector art at every density, no blurry raster").
+     Reuses the launcher's tri-tone shield language + power ring and the same aapt gradient technique
+     as ic_launcher_foreground.xml, keyed to the shared brand colours in res/values/colors.xml. All
+     geometry stays within the inner ~2/3 safe zone so it survives the Android 12+ circular splash mask. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="240dp"
+    android:height="240dp"
+    android:viewportWidth="240"
+    android:viewportHeight="240">
+
+    <!-- ambient violet glow behind the mark -->
+    <path
+        android:pathData="M120,120 m-72,0 a72,72 0 1,0 144,0 a72,72 0 1,0 -144,0"
+        android:fillAlpha="0.16">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="120"
+                android:centerY="120"
+                android:gradientRadius="72"
+                android:startColor="#8B7BF5"
+                android:endColor="#00000000" />
+        </aapt:attr>
+    </path>
+
+    <!-- tri-tone shield body: cyan -> violet -> indigo, the same sweep as the launcher + ConnectRing -->
+    <path android:pathData="M120,52 L178,71 L178,133 L120,191 L62,133 L62,71 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="62" android:startY="52"
+                android:endX="178" android:endY="191"
+                android:startColor="#22D3EE"
+                android:centerColor="#8B7BF5"
+                android:endColor="#6366F1" />
+        </aapt:attr>
+    </path>
+
+    <!-- inner shield inset so the crest reads as forged glass, not a flat plate -->
+    <path
+        android:pathData="M120,74 L160,88 L160,128 L120,169 L80,128 L80,88 Z"
+        android:fillColor="#05070A"
+        android:fillAlpha="0.55" />
+
+    <!-- crisp power ring (open circle + stem) — the connect glyph -->
+    <path
+        android:pathData="M137,102.5 A38,38 0 1 1 103,102.5"
+        android:fillColor="#00000000"
+        android:strokeColor="#EAFCFF"
+        android:strokeAlpha="0.94"
+        android:strokeWidth="9"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M120,92 L120,128"
+        android:fillColor="#00000000"
+        android:strokeColor="#EAFCFF"
+        android:strokeWidth="9"
+        android:strokeLineCap="round" />
+</vector>

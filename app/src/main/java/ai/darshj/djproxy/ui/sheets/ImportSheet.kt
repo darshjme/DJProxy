@@ -1,10 +1,13 @@
 package ai.darshj.djproxy.ui.sheets
 
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,30 +15,44 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import ai.darshj.djproxy.config.NamedConfig
+import ai.darshj.djproxy.proxy.ProxyError
 import ai.darshj.djproxy.ui.ImportPreview
 import ai.darshj.djproxy.ui.components.GlassSurface
 import ai.darshj.djproxy.ui.theme.DjColors
@@ -55,6 +72,8 @@ private enum class ImportTab(val label: String) {
 fun ImportSheet(
     preview: ImportPreview?,
     choices: List<NamedConfig>?,
+    error: ProxyError?,
+    busy: Boolean,
     onIngest: (raw: String, autoConnect: Boolean) -> Unit,
     onChoose: (NamedConfig) -> Unit,
     onConnectPreview: () -> Unit,
@@ -83,8 +102,12 @@ fun ImportSheet(
         sheetState = sheetState,
         containerColor = DjColors.CharcoalRaised,
     ) {
+      // Cap the reading/content width so the sheet stays a focused surface on the Fold7 unfolded
+      // (~900dp) pane instead of stretching every field/tab edge-to-edge.
+      Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
         Column(
             modifier = Modifier
+                .widthIn(max = 480.dp)
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
@@ -93,7 +116,7 @@ fun ImportSheet(
         ) {
             Text("Import a proxy", style = MaterialTheme.typography.headlineSmall, color = DjColors.TextPrimary)
 
-            // segmented tab row
+            // segmented tab row — each tab is a >=44dp touch target so the four are not mis-tappable.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -103,33 +126,52 @@ fun ImportSheet(
             ) {
                 ImportTab.entries.forEach { t ->
                     val selected = t == tab
-                    Text(
-                        t.label,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (selected) DjColors.TextOnAccent else DjColors.TextSecondary,
+                    Box(
                         modifier = Modifier
                             .weight(1f)
+                            .heightIn(min = 44.dp)
                             .clip(RoundedCornerShape(12.dp))
-                            .background(if (selected) DjColors.AccentCyan else androidx.compose.ui.graphics.Color.Transparent)
-                            .clickable { tab = t }
-                            .padding(vertical = 10.dp),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    )
+                            .background(if (selected) DjColors.AccentCyan else Color.Transparent)
+                            .clickable { tab = t },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            t.label,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (selected) DjColors.TextOnAccent else DjColors.TextSecondary,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                 }
             }
 
             when (tab) {
                 ImportTab.Paste -> {
+                    TextButton(
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                            val clip = clipboard?.primaryClip?.takeIf { it.itemCount > 0 }
+                                ?.getItemAt(0)?.coerceToText(context)
+                            if (!clip.isNullOrBlank()) pasteRaw = clip.toString()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Paste from clipboard") }
                     OutlinedTextField(
                         value = pasteRaw,
                         onValueChange = { pasteRaw = it },
                         modifier = Modifier.fillMaxWidth().heightIn(min = 96.dp),
                         placeholder = { Text("socks5://user:pass@host:port, ss://…, or a proxy line", color = DjColors.TextTertiary) },
+                        leadingIcon = { Icon(Icons.Filled.ContentPaste, contentDescription = null, tint = DjColors.TextTertiary) },
                         colors = importFieldColors(),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { onIngest(pasteRaw, false) }),
                     )
-                    Button(onClick = { onIngest(pasteRaw, false) }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Parse & preview")
+                    Button(onClick = { onIngest(pasteRaw, false) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                        if (busy) {
+                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = DjColors.TextOnAccent)
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        Text(if (busy) "Parsing…" else "Parse & preview")
                     }
                 }
                 ImportTab.Scan -> {
@@ -155,9 +197,14 @@ fun ImportSheet(
                         placeholder = { Text("https://provider.example/sub/…", color = DjColors.TextTertiary) },
                         colors = importFieldColors(),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                        keyboardActions = KeyboardActions(onGo = { onIngest(subUrl, false) }),
                     )
-                    Button(onClick = { onIngest(subUrl, false) }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Fetch list")
+                    Button(onClick = { onIngest(subUrl, false) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                        if (busy) {
+                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = DjColors.TextOnAccent)
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        Text(if (busy) "Fetching…" else "Fetch list")
                     }
                 }
                 ImportTab.File -> {
@@ -173,6 +220,30 @@ fun ImportSheet(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text("Choose .ovpn file")
+                    }
+                }
+            }
+
+            // Inline error surface — a rejected/unsupported import (e.g. a vmess:// link) now shows a
+            // reason INSIDE the sheet instead of the sheet sitting inert while the error hides behind
+            // the scrim on Home.
+            error?.let { e ->
+                GlassSurface(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = 16.dp,
+                    borderBrush = Brush.linearGradient(listOf(DjColors.Rose, DjColors.RoseDeep)),
+                    fill = Brush.verticalGradient(
+                        listOf(DjColors.Rose.copy(alpha = 0.14f), DjColors.Rose.copy(alpha = 0.05f)),
+                    ),
+                ) {
+                    Column(Modifier.fillMaxWidth()) {
+                        Text(e.message, style = MaterialTheme.typography.titleSmall, color = DjColors.TextPrimary)
+                        Text(
+                            e.hint,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = DjColors.TextSecondary,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
                     }
                 }
             }
@@ -220,6 +291,7 @@ fun ImportSheet(
             }
             Spacer(Modifier.height(2.dp))
         }
+      }
     }
 }
 

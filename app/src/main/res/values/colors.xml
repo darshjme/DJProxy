@@ -3,8 +3,10 @@
     <!-- DJProxy brand palette — dark-first glassmorphism, shield/tunnel identity.
          Shared across the XML theme here and (independently) the Compose theme in ui/theme/Color.kt. -->
 
-    <!-- base surfaces -->
-    <color name="djp_bg">#0B1220</color>
+    <!-- base surfaces. djp_bg matches the Compose djBackgroundBrush() outer/edge stop
+         (DjColors.VoidBlack #05070A) so the window/system-bar chrome and the splash->content
+         hand-off share one seamless near-black instead of jumping bluer at release. -->
+    <color name="djp_bg">#05070A</color>
     <color name="djp_bg_elevated">#131C33</color>
     <color name="djp_surface_glass">#1A2340</color>
     <color name="djp_outline">#2A3654</color>
@@ -28,7 +30,8 @@
     <color name="colorPrimaryDark">@color/djp_bg</color>
     <color name="colorAccent">@color/djp_accent_indigo</color>
 
-    <!-- splash screen (androidx.core.splashscreen): same near-black theme surface as djp_bg,
-         kept as its own token so the splash lane never has to touch the core surface color. -->
-    <color name="djp_splash_bg">#0B1220</color>
+    <!-- splash screen (androidx.core.splashscreen): identical near-black surface as djp_bg
+         (= DjColors.VoidBlack #05070A, the outer stop of djBackgroundBrush()), so the system
+         splash releases into the Compose sequence with no visible tone shift. -->
+    <color name="djp_splash_bg">#05070A</color>
 </resources>

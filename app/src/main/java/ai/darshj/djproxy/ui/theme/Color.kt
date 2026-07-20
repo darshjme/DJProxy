@@ -40,7 +40,9 @@ object DjColors {
     // Text
     val TextPrimary = Color(0xFFF4F6F8)
     val TextSecondary = Color(0xFFA7B0BC)
-    val TextTertiary = Color(0xFF6B7684)
+    // Raised to meet WCAG AA (>=4.5:1) on the charcoal/void base: ~5.5:1 on Charcoal, ~5.8:1 on
+    // VoidBlack, still visibly dimmer than TextSecondary. Was 0xFF6B7684 (~4.1:1, failed AA).
+    val TextTertiary = Color(0xFF808A98)
     val TextOnAccent = Color(0xFF04121A)
 
     // Log levels

@@ -16,9 +16,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import ai.darshj.djproxy.ui.theme.DjColors
 import ai.darshj.djproxy.vpn.seams.SettingsPanel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -42,6 +45,7 @@ class TorSettingsPanel(
     @Composable
     override fun Content() {
         val scope = rememberCoroutineScope()
+        val context = LocalContext.current
         val active by controller.active.collectAsState()
         val progress by controller.bootstrapProgress.collectAsState()
         val phase by controller.phase.collectAsState()
@@ -51,12 +55,13 @@ class TorSettingsPanel(
                 text = headline(phase, active),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
+                color = DjColors.TextPrimary,
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                text = detail(phase, active, progress),
+                text = detail(phase, active, progress, context),
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = DjColors.TextSecondary,
             )
 
             if (phase == TorPhase.BOOTSTRAPPING) {
@@ -70,16 +75,29 @@ class TorSettingsPanel(
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (active) {
-                    OutlinedButton(onClick = { controller.stop() }) { Text("Disable Tor") }
-                    Button(onClick = {
-                        controller.stop()
-                        scope.launch { controller.start() }
-                    }) { Text("Restart") }
-                } else {
+                    OutlinedButton(
+                        enabled = phase != TorPhase.BOOTSTRAPPING,
+                        onClick = { controller.stop() },
+                    ) { Text("Disable Tor") }
                     Button(
                         enabled = phase != TorPhase.BOOTSTRAPPING,
-                        onClick = { scope.launch { controller.start() } },
-                    ) { Text(if (phase == TorPhase.BOOTSTRAPPING) "Starting…" else "Enable Tor") }
+                        onClick = {
+                            // Serialize stop+start in ONE coroutine with a settle delay so the OS
+                            // finishes unbind/stopService before the re-bind/start-foreground fires
+                            // (no start-after-stop churn / bind racing an in-flight teardown).
+                            scope.launch {
+                                controller.stop()
+                                delay(250)
+                                controller.start()
+                            }
+                        },
+                    ) { Text(if (phase == TorPhase.BOOTSTRAPPING) "Restarting…" else "Restart") }
+                } else if (phase == TorPhase.BOOTSTRAPPING) {
+                    Button(enabled = false, onClick = {}) { Text("Starting…") }
+                    // Never a silent, uncancellable wait — let the user abort a hanging bootstrap.
+                    OutlinedButton(onClick = { controller.stop() }) { Text("Cancel") }
+                } else {
+                    Button(onClick = { scope.launch { controller.start() } }) { Text("Enable Tor") }
                 }
             }
         }
@@ -92,10 +110,23 @@ class TorSettingsPanel(
         else -> "Tor is off"
     }
 
-    private fun detail(phase: TorPhase, active: Boolean, progress: Int): String = when {
-        active ->
-            "The whole device routes through Tor. Open a .onion address in Chrome — it resolves inside " +
-                "Tor over the existing tunnel. Turn Tor off to use a normal proxy."
+    private fun detail(
+        phase: TorPhase,
+        active: Boolean,
+        progress: Int,
+        context: android.content.Context,
+    ): String = when {
+        active -> {
+            val base = "The whole device routes through Tor. Open a .onion address in Chrome — it " +
+                "resolves inside Tor over the existing tunnel. Turn Tor off to use a normal proxy."
+            if (PrivateDnsGuard.isStrictModeActive(context)) {
+                base + " Note: your device's Private DNS is set to a custom provider — that can stop " +
+                    ".onion sites from resolving (set Private DNS to Automatic to fix it; this is a " +
+                    "device setting, not a Tor/DJProxy issue)."
+            } else {
+                base
+            }
+        }
         phase == TorPhase.BOOTSTRAPPING ->
             "Building a Tor circuit… ${progress.coerceIn(0, 100)}%. This can take a moment on a slow network."
         phase == TorPhase.FAILED ->

@@ -1,9 +1,13 @@
 package ai.darshj.djproxy.hotspot
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -15,9 +19,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import ai.darshj.djproxy.qr.QrEncoder
+import ai.darshj.djproxy.ui.theme.DjColors
 import ai.darshj.djproxy.vpn.seams.HotspotCapability
 import ai.darshj.djproxy.vpn.seams.SettingsPanel
 import ai.darshj.djproxy.vpn.seams.ShareState
@@ -43,6 +53,7 @@ class HotspotSettingsPanel(
     @Composable
     override fun Content() {
         val ctx = LocalContext.current
+        val clip = LocalClipboardManager.current
         val cap by controller.capability.collectAsState()
         val share by controller.share.collectAsState()
         val cscope = rememberCoroutineScope()
@@ -65,6 +76,7 @@ class HotspotSettingsPanel(
                         "Tier: no LAN/hotspot interface — enable your hotspot or join a network."
                 },
                 style = MaterialTheme.typography.bodyMedium,
+                color = DjColors.TextPrimary,
             )
 
             when (val s = share) {
@@ -74,6 +86,7 @@ class HotspotSettingsPanel(
                             "and shown once the share starts. Share it only with your own devices — the " +
                             "endpoint relays through your paid proxy exit.",
                         style = MaterialTheme.typography.bodySmall,
+                        color = DjColors.TextSecondary,
                     )
                     Button(
                         onClick = {
@@ -100,21 +113,60 @@ class HotspotSettingsPanel(
                 }
 
                 is ShareState.LanProxy -> {
-                    Text("LAN proxy live at ${s.addr}:${s.port}", style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        text = QrPayload.humanHint(s.addr, s.port, LanCredential.parse(s.cred)),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Text(
-                        text = "HTTP:  ${QrPayload.forHttp(s.addr, s.port, LanCredential.parse(s.cred))}",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                    )
-                    Text(
-                        text = "SOCKS: ${QrPayload.forSocks5(s.addr, s.port, LanCredential.parse(s.cred))}",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                    )
+                    val cred = LanCredential.parse(s.cred)
+                    val httpUrl = QrPayload.forHttp(s.addr, s.port, cred)
+                    val socksUrl = QrPayload.forSocks5(s.addr, s.port, cred)
+                    val payload = controller.qrPayload()
+                    val qrBitmap = remember(payload) {
+                        payload?.let { runCatching { QrEncoder.encodeQr(it, 512) }.getOrNull() }
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(DjColors.GlassFill)
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            "LAN proxy live at ${s.addr}:${s.port}",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = DjColors.AccentCyan,
+                        )
+                        qrBitmap?.let {
+                            Image(
+                                bitmap = it,
+                                contentDescription = "Scan to configure this device as a proxy client",
+                                modifier = Modifier
+                                    .size(200.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(Color.White)
+                                    .padding(12.dp),
+                            )
+                        }
+                        Text(
+                            text = QrPayload.humanHint(s.addr, s.port, cred),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = DjColors.TextSecondary,
+                        )
+                        Text(
+                            text = "HTTP:  $httpUrl",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = DjColors.TextPrimary,
+                            fontFamily = FontFamily.Monospace,
+                        )
+                        Text(
+                            text = "SOCKS: $socksUrl",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = DjColors.TextPrimary,
+                            fontFamily = FontFamily.Monospace,
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = { clip.setText(AnnotatedString(httpUrl)) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Copy proxy URL") }
                     Button(
                         onClick = { controller.stopShare(); status = null },
                         modifier = Modifier.fillMaxWidth(),
@@ -125,6 +177,7 @@ class HotspotSettingsPanel(
                     Text(
                         "Transparent redirect active — hotspot clients are proxied automatically.",
                         style = MaterialTheme.typography.titleSmall,
+                        color = DjColors.Emerald,
                     )
                     Button(
                         onClick = { controller.stopShare(); status = null },
@@ -134,7 +187,7 @@ class HotspotSettingsPanel(
             }
 
             status?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                Text(it, style = MaterialTheme.typography.bodySmall, color = DjColors.Rose)
             }
         }
     }

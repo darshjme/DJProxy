@@ -5,9 +5,10 @@
 [![Platform](https://img.shields.io/badge/platform-Android%205.0%2B-3fb950?style=flat-square)](#build-from-source)
 [![Kotlin](https://img.shields.io/badge/kotlin-2.0-a371f7?style=flat-square)](app/build.gradle.kts)
 
-DJProxy is a free, open-source Android app that puts one SOCKS5 or HTTP-CONNECT proxy in front of
-every app on the device. Paste in credentials, hit Apply, and either the whole phone routes through
-that proxy or nothing does — there's no in-between state where some traffic quietly escapes.
+DJProxy is a free, open-source Android app that puts one SOCKS5 or HTTP-CONNECT proxy — or Tor — in
+front of every app on the device. Paste it, scan a QR code, import a subscription or `.ovpn` file, or
+just flip the Tor toggle; tap the ring, and either the whole phone routes through it or nothing does —
+there's no in-between state where some traffic quietly escapes.
 
 Most "proxy apps" only redirect the browser, or leak DNS and WebRTC around the tunnel they just set
 up. DJProxy is built the other way: closed by construction — routes, DNS, and IPv6/UDP handling all
@@ -34,18 +35,22 @@ what changed from earlier versions.
 
 ## Quick start
 
-1. Get a SOCKS5 or HTTP-CONNECT proxy (with or without a username/password).
+1. Get a SOCKS5 or HTTP-CONNECT proxy (with or without a username/password) — or just turn on Tor,
+   no proxy required.
 2. Install the APK and open DJProxy.
-3. Paste the proxy in whatever format you have it — `socks5://user:pass@host:port`,
-   `host:port:user:pass`, `user:pass@host:port`, plain `host:port`, or space-separated
-   `host port user pass` all parse. Or just fill in the Host/Port/User/Pass fields directly; paste
-   box and fields stay in sync either way.
-4. Tap **Apply**. DJProxy tests the proxy for real before doing anything else. If it fails, you get
+3. Get a config in however it's easiest: **Edit** to type or paste a line (`socks5://user:pass@host:port`,
+   `host:port:user:pass`, `ss://…`, plain `host:port`, and three other formats all parse), **Scan** a
+   QR code, or **Import** a subscription URL or an `.ovpn` file. A `djproxy://`, `socks5://`, or
+   `ss://` link opened from a browser or another app lands here too. Or skip all of that and flip
+   the **Tor** toggle to route through the Tor network instead of a proxy you supply.
+4. Tap the ring. DJProxy tests the proxy for real before doing anything else. If it fails, you get
    a specific reason (wrong port, bad credentials, timeout, not actually a SOCKS5 server, etc.) and
    a one-line fix — never a bare "error."
-5. Once it's up, the status card shows uptime, bytes up/down, active connections, and a row of
-   advisory health chips. A live log scrolls underneath if you want the detail. The gear icon opens
-   Settings, where the DNS strategy, location spoofing, and Wi-Fi/hotspot sharing panels live.
+5. Once it's up, the ring locks shut and a redacted line of truth shows what you're connected
+   through. Tap the details disclosure for uptime, bytes up/down, connection counts, advisory health
+   chips, and the live log. The gear icon opens Settings, where DNS strategy, location spoofing,
+   Tor, and Wi-Fi/hotspot sharing panels live. A Quick Settings tile and a home-screen widget can
+   toggle the connection without opening the app at all.
 
 ## Architecture
 
@@ -138,6 +143,44 @@ decision must not itself depend on in-tun DNS working, since DNS is exactly the 
 be degraded on a residential exit. A DNS outage shows up as a post-connect advisory chip, never as a
 reason the tunnel refuses to come up.
 
+### Everything above the tunnel is additive
+
+The diagrams above are the frozen core — none of it changed to add QR scanning, subscription/`.ovpn`
+import, Tor, the Quick Settings tiles, the home-screen widget, or the Material 3 Expressive UI. Every
+one of those is a self-contained lane that produces the same `ProxyConfig` value the tunnel already
+accepted in v3, or reads the tunnel's state to draw a chip — nothing new calls into `VpnService`
+directly, and there is still exactly one `protect()` call site in the whole codebase.
+
+```mermaid
+flowchart LR
+    Paste["Edit sheet\n(paste / type — 7 formats)"]
+    Scan["Scan sheet\nCameraX + ZXing QR"]
+    Sub["Import → Subscription\nHTTPS GET, SSRF-screened,\nbase64 pick-list"]
+    Ovpn["Import → File\n.ovpn proxy directives only"]
+    Link["djproxy:// · socks5:// · ss://\ndeep link / share / open-with"]
+    Tor["Tor toggle\nembedded Tor, local SOCKS5"]
+
+    Paste --> Importer["ConfigImporter\none facade, one ImportResult"]
+    Scan --> Importer
+    Sub --> Importer
+    Ovpn --> Importer
+    Link --> Importer
+    Importer -->|"Single"| Preview["One-tap confirm\n(never silent auto-connect)"]
+    Importer -->|"Many"| Picklist["Pick a server"]
+    Importer -->|"Rejected"| Named["Named, honest error\n(e.g. 'vmess not supported')"]
+    Preview --> Apply
+    Picklist --> Apply
+    Tor -->|"bootstrap 0-100%"| Apply["EXISTING VpnController.apply(config)"]
+    Apply --> Core(("Frozen core\nsee diagrams above"))
+
+    Tile["QS tile / home widget"] -.->|"last-validated config"| Apply
+```
+
+DJProxy still speaks plaintext SOCKS5 and HTTP-CONNECT only. `ss://` import works for the one
+Shadowsocks cipher that's actually unencrypted (`none`/`plain`); every real AEAD cipher, and the
+`vmess://`/`vless://`/`trojan://`/`hysteria2://` families, are rejected by name with the reason —
+DJProxy would rather say "I can't speak this" than fake a connection that silently fails later.
+
 ## Features
 
 <details>
@@ -151,6 +194,65 @@ specific message plus a fix hint — never a silent no-op.
 
 The paste box and the labelled Host/Port/User/Password/Type fields are two-way synced: paste and
 the fields fill in, edit a field and the canonical line updates.
+</details>
+
+<details>
+<summary><strong>Five more ways in: QR, deep link, share, subscription, .ovpn</strong></summary>
+
+The paste box was the only front door in v3. In v4 every one of these converges on the same
+`ConfigImporter` facade and the same one-tap "review, then connect" confirmation — nothing
+auto-connects from an untrusted source:
+
+- **Scan a QR code.** `qr/QrCameraScanner.kt` hosts a CameraX preview with a ZXing decoder (`core`,
+  no ML Kit/Play Services — this stays usable on de-Googled ROMs and camera-less emulators). Decode
+  and the encode side (drawing the LAN-share QR) both come from the one 3.5 MB ZXing dependency.
+- **`socks5://`, `ss://`, and `djproxy://import`/`djproxy://connect` links** open straight into the
+  Import sheet from a browser, file manager, or another app's share sheet — handled by
+  `config/UriConfigParser.kt`. `ss://` only produces a working config for the unencrypted `none`/
+  `plain` method; a real AEAD Shadowsocks cipher, or a `vmess://`/`vless://`/`trojan://`/
+  `hysteria2://` link, comes back as a named, honest "DJProxy can't terminate this" error instead of
+  a fake success.
+- **Subscription URLs.** `config/SubscriptionFetcher.kt` fetches an `https://` link (cleartext
+  `http://` is refused outright), decodes the base64 body into a newline list of config URIs, and
+  hands you a pick-list — it never auto-connects to whichever entry came first. Every hop, including
+  redirects, is re-resolved and checked against a private/loopback/link-local/CGNAT/unique-local
+  block-list before it's dialed, so a hostile subscription can't pivot into your phone's own network
+  or beacon an internal service.
+- **`.ovpn` files**, opened from a file manager or shared in. `config/OvpnParser.kt` reads only the
+  `http-proxy`/`socks-proxy` directives — DJProxy is a SOCKS/HTTP proxy app, not an OpenVPN client,
+  and says exactly that (`OvpnNotAProxy`) if the file has no proxy line, rather than pretending to
+  import a VPN it can't actually run.
+- **Share-to-DJProxy.** A proxy line or subscription link shared as plain text from another app
+  (`ACTION_SEND`) opens the Import sheet pre-filled, parsed, and waiting for your tap.
+</details>
+
+<details>
+<summary><strong>Optional Tor: route the whole device through Tor instead of a proxy</strong></summary>
+
+The Tor toggle in the source strip bootstraps an embedded Tor (guardianproject `tor-android` +
+`jtorctl`) and, once the circuit is up, hands the **existing** `VpnController.apply()` a
+`socks5://127.0.0.1:9050` config — the exact same seam every proxy source uses. No core file
+changed to add this: the ring shows a real bootstrap percentage while Tor builds its circuit
+("Building Tor circuit… 47%"), locks shut in Tor purple instead of emerald once it's live, and the
+whole background tints indigo → purple to make the mode unmistakable. `.onion` addresses resolve in
+Chrome through the same MapDNS + SOCKS5 domain-CONNECT path that already handles ordinary domains —
+no separate .onion plumbing was needed. Because the app itself is excluded from its own tunnel
+(`addDisallowedApplication`), Tor's own sockets go direct rather than looping back into the VPN it
+just created. Tor and a custom proxy are mutually exclusive in this release; chaining one behind the
+other is out of scope. Tor is hidden entirely — not greyed out, not shown and failing — if the Tor
+lane isn't present in a given build, the same honest-capability rule the location and hotspot lanes
+follow.
+</details>
+
+<details>
+<summary><strong>One-tap surfaces: Quick Settings tiles and a home-screen widget</strong></summary>
+
+A Connect tile and a Tor tile live in the Quick Settings shade; a two-button home-screen widget
+(connect/disconnect + Tor) sits on the launcher. Both act on the last-validated config through the
+same start path and VPN-consent gate the app itself uses — a tap never routes traffic without prior
+consent, it opens the app to get it instead. The widget's receiver is `android:exported="false"`: it
+only accepts its own `PendingIntent`s, so a stray zero-permission app on the device can't broadcast a
+`STOP`/`TOGGLE` and tear the tunnel down as a kill-switch-bypass or deanonymization trick.
 </details>
 
 <details>
@@ -331,11 +433,20 @@ and the assembled body is still scrubbed for anything that looks like a credenti
 <details>
 <summary><strong>Live status, not a spinner</strong></summary>
 
-The status card shows connection stage, the redacted proxy endpoint (`•••@host:port` — username and
-password are both masked), a ticking uptime counter, bytes up/down, active and total connection
-counts, and the advisory health chip row. A scrollable log underneath streams every significant
-event as it happens. The whole screen is Material 3 + Compose, dark-first, with translucent glass
-surfaces and a cyan/indigo accent instead of stock Material purple.
+Home stays uncluttered: the ring, its stage word, one redacted line of truth, the three-button
+source strip, and — once connected — the advisory chips. Everything else (uptime, bytes up/down,
+connection counts, and the live log) lives one tap down in the details disclosure, so a screenshot
+of the app at rest doesn't look like a debug console.
+
+`ConnectRing` (`ui/components/ConnectRing.kt`) is a hand-rolled Canvas superellipse, not a stock
+`CircularProgressIndicator`: it softens toward a circle and closes its ring with a spring-eased
+"lock" (plus a haptic tick) the instant CONNECTED is reached, hardens into a sharp 4-lobe shape with
+a single shake on ERROR, and pulses amber on RECONNECTING — the shape and color both carry meaning,
+but the stage word underneath never depends on color alone. A tri-tone cyan→violet→indigo sweep
+drives the arc; Tor mode recolors the same ring purple instead of adding a second component. The
+whole screen is Material 3 + Compose, dark-first, translucent glass surfaces (`GlassSurface`), and a
+branded Compose splash hand-off — the launch icon's ring becomes the live ConnectRing rather than
+cutting from one to the other.
 </details>
 
 ## What a proxy VPN on unrooted Android can and cannot do
@@ -396,15 +507,21 @@ covers the location/hotspot ceilings specifically; the rest of the model:
   every VPN. DJProxy's threat model is a passive network observer or the destination server trying
   to learn your real IP or the hostnames you're resolving — not a global adversary correlating flows.
 
-See [DESIGN.md](DESIGN.md) for the original core leak-proofing/threat model, and
-[DESIGN_V3.md](DESIGN_V3.md) for the full v3 architecture (advisory health, the DNS resolver chain,
-location/hotspot lanes, crash-proofing, and the compatibility matrix) these mechanisms build on.
+See [DESIGN.md](DESIGN.md) for the original core leak-proofing/threat model, [DESIGN_V3.md](DESIGN_V3.md)
+for the full v3 architecture (advisory health, the DNS resolver chain, location/hotspot lanes,
+crash-proofing, and the compatibility matrix) these mechanisms build on, and
+[DESIGN_V4.md](DESIGN_V4.md) for the v4 UI/feature-lane blueprint (QR/import/Tor/surfaces/expressive
+UI) — all of it additive over the same frozen core, per the disjoint file-ownership map in that
+document.
 
 ## Build from source
 
 Requirements: Android SDK (`platform-35`, `build-tools;35.0.0`), NDK `27.2.12479018`, JDK 21. The
 native transport is a git submodule — clone with `--recurse-submodules` or run
-`git submodule update --init` afterward.
+`git submodule update --init` afterward. v4 adds CameraX + ZXing (QR scan/generate), an embedded Tor
+(`info.guardianproject:tor-android`/`jtorctl`), and `androidx.graphics:graphics-shapes` — all pulled
+automatically by Gradle, no extra setup. `CAMERA` is requested at runtime only when you open the
+Scan sheet; the app runs fully without ever granting it.
 
 ```sh
 git clone --recurse-submodules https://github.com/darshjme/DJProxy.git
@@ -441,14 +558,17 @@ address for diagnostic e-mails, and a rebranded fork should not silently mail re
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). The short version: read `DESIGN_V3.md` first (it's the
-current source of truth; `DESIGN.md` is the original core model it extends), never weaken a leak
-guarantee or turn an advisory check back into a hard gate to make a feature easier, and don't add a
-second `VpnService.protect()` call site anywhere in the codebase.
+See [CONTRIBUTING.md](CONTRIBUTING.md). The short version: read `DESIGN_V3.md` (the tunnel core) and
+`DESIGN_V4.md` (the UI/feature lanes) first, never weaken a leak guarantee or turn an advisory check
+back into a hard gate to make a feature easier, don't add a second `VpnService.protect()` call site
+anywhere in the codebase, and never edit a DO-NOT-TOUCH core file listed in `DESIGN_V4.md` §0 — every
+v4 lane attaches through the existing `FeatureRegistry`/`VpnRuntime` seams instead.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Bundled third-party components keep their own licenses: hev-socks5-tunnel
+(MIT, vendored as a submodule), embedded Tor and jtorctl (guardianproject, BSD/MIT-style), ZXing `core`
+(Apache 2.0), and CameraX (Apache 2.0) — see each project's own repository for its full license text.
 
 ---
 

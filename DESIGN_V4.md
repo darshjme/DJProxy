@@ -1,8 +1,15 @@
 # DJProxy v4 — Design SSOT (UI overhaul + feature expansion)
 
-**Status:** authoritative blueprint. Supersedes nothing in v3 (the tunnel core is frozen); this is a
-purely **additive** layer over the shipping v3 app. One UI engineer + six feature lanes build to this
-document. If code and this document disagree, this document is wrong — fix the document, not the frozen core.
+**Status:** SHIPPED. All seven lanes below (ui/qr/config/hotspot/location/tor/surfaces/platform) are
+built and verified in-repo: `assembleRelease` succeeds, `testDebugUnitTest` passes (250 tests / 0
+failures / 32 classes), and `apksigner`/`aapt2`/manifest xmltree checks confirm the release APK
+matches this document. The blueprint below is otherwise unchanged from the original plan; §14 records
+the handful of places the shipped code diverged from it and why — read §14 alongside the section it
+corrects rather than trusting the numbers inline above it.
+
+Supersedes nothing in v3 (the tunnel core is frozen); this is a purely **additive** layer over the
+shipping v3 app. If code and this document disagree anywhere §14 doesn't call out, the code is the
+source of truth (§14 is meant to be exhaustive — file a doc bug if you find a gap).
 
 **Prime directive (unchanged from v3):** the DO-NOT-TOUCH core files (`vpn/DjVpnService`, `LeakPolicy`,
 `TunBuilder`, `RemoteEngine`, `CredentialStore`, `ConnectivityProbe`, `HealthMonitor`, `VpnController`,
@@ -540,3 +547,46 @@ appears in **no** lane — read-only to all.
 - **ui** owns the composition root, the synthetic `PREPARING_TOR` stage, the `Route`/`HomeSheet` model, intent
   ingestion (`ingestExternal`), and every animation; reads all lane seams, writes none of them.
 - **platform** is the single writer of manifest + gradle, wiring every lane's deps/filters/services from §11.
+
+---
+
+## 14. Post-implementation deltas (shipped vs. this blueprint)
+
+Recorded once, here, instead of silently editing the numbers above — so anyone diffing the plan
+against the repo has a map of exactly where and why they differ.
+
+- **§11.1 dependency version:** `info.guardianproject:tor-android:0.4.8.7` is not resolvable — that
+  tag exists only on the guardianproject `gpmaven` repository, which this project does not declare
+  (`settings.gradle.kts` pins `repositoriesMode = FAIL_ON_PROJECT_REPOS` with only `google()` +
+  `mavenCentral()`, and adding a repository is outside the platform lane's ownership of this file —
+  it owns `AndroidManifest.xml` + `app/build.gradle.kts`, not `settings.gradle.kts`). Shipped pin is
+  **`0.4.7.14`**, the newest `tor-android` build actually published to Maven Central; its bundled
+  manifest declares `minSdkVersion 16` / `targetSdkVersion 33`, fully compatible with this app's
+  minSdk 21 / targetSdk 35, so no `<uses-sdk tools:overrideLibrary>` was needed. `jtorctl:0.4.5.7` is
+  unchanged from the plan.
+- **§9 widget security (post-launch hardening):** `DjWidgetProvider` ships `android:exported="false"`,
+  not the implicit default. `onReceive` dispatches privileged `TOGGLE`/`STOP`/`TOR_TOGGLE` actions with
+  no consent gate of its own; an exported receiver would let any zero-permission app on the device fire
+  an explicit `STOP` broadcast and tear the tunnel down (a kill-switch bypass). The AppWidget host still
+  delivers `APPWIDGET_UPDATE` to a non-exported provider, and the widget's own button `PendingIntent`s
+  (created via `getBroadcast` by this app) are delivered on the creator's token regardless of export —
+  so `exported=false` closes the hole with no loss of function. Treat this as the canonical widget
+  manifest shape; do not revert to an implicit/exported receiver.
+- **§8 Tor state model:** shipped `TorController` adds a `phase: StateFlow<TorPhase>` (`IDLE` /
+  `BOOTSTRAPPING` / `READY` / `FAILED`) alongside `bootstrapProgress` and `active`. This is what lets
+  `TorInfoSheet` show an honest "Tor couldn't start" card on a failed bootstrap instead of a `0%`
+  progress bar that looks like it's still trying — `phase` was needed to distinguish "never started"
+  from "just failed" from `bootstrapProgress` alone.
+- **§4 qr lane file split:** the lane additionally ships `qr/QrDecode.kt` — a pure-JVM
+  `LumaFrame`/`QrDecoder`/`QrScanHandoff` core with no CameraX/ZXing/Android imports, so the
+  frame-to-`ProxyConfig` handoff is unit-testable without a camera. `ZxingQrDecoder` (the real ZXing
+  binding) and `ZxingLuminanceAnalyzer` sit on top of it. Not a scope change, just a testability split
+  the blueprint's file list didn't enumerate.
+- **§9 surfaces lane file split:** `surfaces/TileState.kt` (shared tile on/off/unavailable state) and
+  `surfaces/TorBridge.kt` (the tile/widget-facing read of `tor.TorGateway`, kept separate so
+  `surfaces/**` doesn't import `tor.*` types directly into `ConnectTileService`/`DjWidgetProvider`)
+  were added alongside the four files §9 named. Same ownership (`surfaces` lane), no seam change.
+- **Everything else** — the seven-lane split, the `FeatureRegistry`/`VpnRuntime`/`TorGateway` seams,
+  the seven-format-plus-URI/subscription/`.ovpn` import funnel, the `ConnectRing` state table, the
+  honest hotspot/location capability tiers, and the disjoint file-ownership map — matches this document
+  as written; no other corrections were needed.

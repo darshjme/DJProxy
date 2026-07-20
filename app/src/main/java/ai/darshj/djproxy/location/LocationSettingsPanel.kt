@@ -187,8 +187,8 @@ class LocationSettingsPanel(
                 label = { Text("Latitude") },
                 singleLine = true,
                 enabled = enabled,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.width(150.dp),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.weight(1f),
             )
             OutlinedTextField(
                 value = lng,
@@ -196,8 +196,8 @@ class LocationSettingsPanel(
                 label = { Text("Longitude") },
                 singleLine = true,
                 enabled = enabled,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.width(150.dp),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.weight(1f),
             )
         }
         errorMsg?.let {

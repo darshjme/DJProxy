@@ -24,6 +24,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import ai.darshj.djproxy.ui.theme.DjColors
 import ai.darshj.djproxy.vpn.Health
@@ -37,7 +39,8 @@ import ai.darshj.djproxy.vpn.HealthReport
  * Connect/Stop button or hides the status card.
  *
  * Colour language: cyan = healthy/expected, amber = degraded (advisory only), grey = not yet
- * checked. Every chip also carries a word, never colour alone, per the app's accessibility bar.
+ * checked. Every chip also carries a state word ("OK"/"degraded"/"checking"/"alert") appended to its
+ * label and merged into a single accessibility description, never colour alone.
  */
 /**
  * ui-lane entry-animation wrapper (§1.6): the advisory chips cascade in (fade + scale-up) the moment
@@ -93,11 +96,21 @@ private fun HealthChip(label: String, state: Health, forceColor: Color? = null) 
         Health.DEGRADED -> DjColors.Amber
         Health.UNKNOWN -> DjColors.TextTertiary
     }
+    val stateWord = if (forceColor != null) {
+        "alert"
+    } else {
+        when (state) {
+            Health.OK -> "OK"
+            Health.DEGRADED -> "degraded"
+            Health.UNKNOWN -> "checking"
+        }
+    }
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
             .background(color.copy(alpha = 0.16f))
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .semantics(mergeDescendants = true) { contentDescription = "$label, $stateWord" },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Spacer(
@@ -107,6 +120,6 @@ private fun HealthChip(label: String, state: Health, forceColor: Color? = null) 
                 .background(color),
         )
         Spacer(Modifier.width(6.dp))
-        Text(label, style = MaterialTheme.typography.labelSmall, color = color)
+        Text("$label · $stateWord", style = MaterialTheme.typography.labelMedium, color = color)
     }
 }

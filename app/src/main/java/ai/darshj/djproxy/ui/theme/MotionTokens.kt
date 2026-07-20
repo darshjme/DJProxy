@@ -1,6 +1,10 @@
 package ai.darshj.djproxy.ui.theme
 
 import android.content.Context
+import android.database.ContentObserver
+import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
@@ -9,7 +13,11 @@ import androidx.compose.animation.core.EaseOutCubic
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 
 /**
@@ -61,7 +69,26 @@ object MotionTokens {
 @Composable
 fun rememberAnimationsEnabled(): Boolean {
     val context = LocalContext.current
-    return remember(context) { animationsEnabled(context) }
+    var enabled by remember(context) { mutableStateOf(animationsEnabled(context)) }
+
+    // Reactive, not a one-shot snapshot: observe ANIMATOR_DURATION_SCALE so flipping the OS
+    // "Remove animations" / reduced-motion setting while DJProxy is running takes effect immediately
+    // (previously it required a process restart).
+    DisposableEffect(context) {
+        val handler = Handler(Looper.getMainLooper())
+        val observer = object : ContentObserver(handler) {
+            override fun onChange(selfChange: Boolean, uri: Uri?) {
+                enabled = animationsEnabled(context)
+            }
+        }
+        val uri = Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE)
+        runCatching { context.contentResolver.registerContentObserver(uri, false, observer) }
+        // Re-check in case the value changed between initial capture and registration.
+        enabled = animationsEnabled(context)
+        onDispose { runCatching { context.contentResolver.unregisterContentObserver(observer) } }
+    }
+
+    return enabled
 }
 
 fun animationsEnabled(context: Context): Boolean {

@@ -23,10 +23,10 @@
       Launch-time splash (androidx.core.splashscreen). This is the *manifest-declared* activity
       theme so the OS/compat lib can paint the branded frame before Compose's first frame — it
       then hands off to Theme.DJProxy via postSplashScreenTheme the moment installSplashScreen()
-      runs in MainActivity.onCreate. Brand art: the shield/tunnel emblem generated for this splash
-      (fal.ai FLUX.1 [dev], see assets/splash_icon_master.png), keyed to transparent and dropped
-      into drawable-{m,h,xh,xxh,xxx}hdpi/splash_icon.png at the 240dp safe-zone convention shared
-      with the launcher icon.
+      runs in MainActivity.onCreate. Brand art: the tri-tone shield + power-ring emblem in
+      res/drawable/splash_icon.xml — a density-independent VectorDrawable (reuses the launcher's
+      brand gradient), replacing the former drawable-*/splash_icon.png rasters so the mark stays
+      retina-crisp at every density and survives the API 31+ circular splash mask (2/3 safe zone).
     -->
     <style name="Theme.DJProxy.Splash" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/djp_splash_bg</item>

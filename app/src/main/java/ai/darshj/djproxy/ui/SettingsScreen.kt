@@ -50,8 +50,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import ai.darshj.djproxy.compat.CapabilityDetector
 import ai.darshj.djproxy.ui.components.GlassSurface
+import ai.darshj.djproxy.ui.components.StepBadge
 import ai.darshj.djproxy.ui.theme.DjColors
 import ai.darshj.djproxy.vpn.FeatureRegistry
 import ai.darshj.djproxy.vpn.VpnState
@@ -90,8 +92,10 @@ fun SettingsScreen(
             Text("Settings", style = MaterialTheme.typography.headlineSmall, color = DjColors.TextPrimary)
         }
 
+        SectionHeader("NETWORK", topPadding = 4.dp)
         NetworkInfoPanel(vpnState)
-        Spacer(Modifier.height(16.dp))
+
+        SectionHeader("LOCATION MATCHING")
         LocationMatchingToggleCard(
             enabled = locationMatchingEnabled,
             onToggle = { newValue ->
@@ -99,13 +103,15 @@ fun SettingsScreen(
                 LocationPreference.setEnabled(context, newValue)
             },
         )
-        Spacer(Modifier.height(16.dp))
         if (locationMatchingEnabled) {
+            Spacer(Modifier.height(12.dp))
             MockLocationInstructionsCard()
-            Spacer(Modifier.height(16.dp))
         }
+
+        SectionHeader("MORE")
         FeaturePanelsHost(locationMatchingEnabled = locationMatchingEnabled)
-        Spacer(Modifier.height(16.dp))
+
+        SectionHeader("ABOUT")
         GlassSurface(modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenAbout)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -265,19 +271,20 @@ private fun FeaturePanelsHost(locationMatchingEnabled: Boolean) {
     }
 }
 
-private fun manufacturerIsSamsung() = Build.MANUFACTURER.equals("samsung", ignoreCase = true)
-private fun manufacturerIsXiaomi() =
-    Build.MANUFACTURER.equals("xiaomi", ignoreCase = true) || Build.BRAND.equals("redmi", ignoreCase = true)
-
-private fun buildNumberFieldLabel(): String = if (manufacturerIsXiaomi()) "MIUI version" else "Build number"
-
-private fun devOptionsPathHint(): String = when {
-    manufacturerIsSamsung() -> "Settings > Developer options (it appears near the bottom of the main " +
-        "Settings list once unlocked; on older OneUI it is under Settings > About phone > Software information)."
-    manufacturerIsXiaomi() -> "Settings > About phone > tap \"MIUI version\" 7 times, then " +
-        "Settings > Additional settings > Developer options."
-    else -> "Settings > System > Developer options (on AOSP-style phones and emulators)."
+/** Uppercase section label used to group the Settings host cards into scannable clusters. */
+@Composable
+private fun SectionHeader(text: String, topPadding: androidx.compose.ui.unit.Dp = 12.dp) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelLarge,
+        color = DjColors.TextTertiary,
+        letterSpacing = 0.8.sp,
+        modifier = Modifier.padding(top = topPadding, bottom = 8.dp),
+    )
 }
+
+// OEM dev-options copy (buildNumberFieldLabel / devOptionsPathHint / manufacturerIs*) now lives in the
+// shared ui/DevOptionsGuidance.kt so Onboarding and Settings can never disagree on the exact path.
 
 private fun openSettingsIntent(action: String, context: Context, fallbackToRoot: Boolean = true) {
     val intent = Intent(action)
@@ -305,9 +312,12 @@ private fun MockLocationInstructionsCard() {
     val context = LocalContext.current
 
     var polledGranted by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        while (true) {
+    // Only poll while the card is expanded and the grant isn't confirmed yet — no always-on CPU/battery
+    // drip while collapsed, and it self-terminates the moment a grant is detected.
+    LaunchedEffect(expanded, polledGranted) {
+        while (expanded && !polledGranted) {
             polledGranted = runCatching { CapabilityDetector.mockLocationGranted(context) }.getOrDefault(false)
+            if (polledGranted) break
             delay(1500)
         }
     }
@@ -428,20 +438,7 @@ private fun GrantDot(granted: Boolean) {
 @Composable
 private fun StepRow(number: Int, title: String, body: String) {
     Row(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier
-                .size(24.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(DjColors.GlassFillStrong),
-        ) {
-            Text(
-                number.toString(),
-                style = MaterialTheme.typography.labelMedium,
-                color = DjColors.TextPrimary,
-                modifier = Modifier.padding(top = 3.dp).fillMaxWidth(),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            )
-        }
+        StepBadge(index = number, done = false)
         Spacer(Modifier.width(10.dp))
         Column {
             Text(title, style = MaterialTheme.typography.titleSmall, color = DjColors.TextPrimary)

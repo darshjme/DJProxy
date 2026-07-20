@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ai.darshj.djproxy.location.LocationCapabilityDetector
 import ai.darshj.djproxy.ui.components.GlassSurface
+import ai.darshj.djproxy.ui.components.StepBadge
 import ai.darshj.djproxy.ui.theme.DjBackgroundBrush
 import ai.darshj.djproxy.ui.theme.DjColors
 import kotlinx.coroutines.delay
@@ -125,13 +126,12 @@ private enum class Stage { CHOICE, GRANT_STEPS }
 private fun LocationChoiceContent(onChooseYes: () -> Unit, onChooseNo: () -> Unit) {
     Text(
         text = "Welcome to DJProxy",
-        fontSize = 26.sp,
-        fontWeight = FontWeight.Bold,
+        style = MaterialTheme.typography.headlineSmall,
         color = DjColors.TextPrimary,
     )
     Text(
         text = "Route your whole phone through one proxy. That's it — no extra setup needed.",
-        fontSize = 14.sp,
+        style = MaterialTheme.typography.bodyMedium,
         color = DjColors.TextSecondary,
     )
 
@@ -141,19 +141,16 @@ private fun LocationChoiceContent(onChooseYes: () -> Unit, onChooseNo: () -> Uni
                 Icon(Icons.Filled.LocationOn, contentDescription = null, tint = DjColors.AccentCyan)
                 Text(
                     "Do you want to match your GPS location to the proxy's region?",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.titleMedium,
                     color = DjColors.TextPrimary,
                 )
             }
             Text(
-                "This is entirely optional. Some streaming and region-locked apps also check your GPS " +
-                    "coordinate, not just your network address. If you turn this on, DJProxy will set your " +
-                    "device's reported location to match wherever the proxy exits — but that requires you to " +
-                    "grant it as your \"mock location app\" in Developer Options first. If you'd rather not " +
-                    "touch Developer Options at all, choose \"No thanks\" and DJProxy will only route your " +
-                    "traffic — your real GPS location is never touched.",
-                fontSize = 13.sp,
+                "Optional. Some streaming / region-locked apps also check your GPS, not just your network " +
+                    "address. Turn this on to match your reported location to the proxy's exit — it needs a " +
+                    "one-time \"mock location app\" grant in Developer Options. Prefer not to? Choose " +
+                    "\"No thanks\" and DJProxy only routes your traffic; your real GPS is never touched.",
+                style = MaterialTheme.typography.bodySmall,
                 color = DjColors.TextSecondary,
             )
         }
@@ -186,14 +183,13 @@ private fun LocationChoiceContent(onChooseYes: () -> Unit, onChooseNo: () -> Uni
 private fun GrantStepsContent(context: Context, granted: Boolean, onFinish: () -> Unit) {
     Text(
         text = "Set up location matching",
-        fontSize = 26.sp,
-        fontWeight = FontWeight.Bold,
+        style = MaterialTheme.typography.headlineSmall,
         color = DjColors.TextPrimary,
     )
     Text(
         text = "You chose to match your GPS location to the proxy's region. Grant these two things once — " +
             "you can skip and set them up later from Settings; the proxy itself works without them.",
-        fontSize = 14.sp,
+        style = MaterialTheme.typography.bodyMedium,
         color = DjColors.TextSecondary,
     )
 
@@ -201,8 +197,8 @@ private fun GrantStepsContent(context: Context, granted: Boolean, onFinish: () -
         index = 1,
         icon = { Icon(Icons.Filled.DeveloperMode, contentDescription = null, tint = DjColors.AccentCyan) },
         title = "Enable Developer Options",
-        body = "Open Settings → About phone → tap \"Build number\" 7 times until it says " +
-            "\"You are now a developer\". (Samsung: About phone → Software information → Build number.)",
+        body = "Open Settings → About phone → tap \"${buildNumberFieldLabel()}\" 7 times until it says " +
+            "\"You are now a developer\".",
         done = false,
         action = {
             OutlinedButton(onClick = { openDeviceInfoSettings(context) }) {
@@ -215,8 +211,7 @@ private fun GrantStepsContent(context: Context, granted: Boolean, onFinish: () -
         index = 2,
         icon = { Icon(Icons.Filled.LocationOn, contentDescription = null, tint = DjColors.AccentCyan) },
         title = "Set DJProxy as the mock location app",
-        body = "Open Settings → System → Developer options → \"Select mock location app\" → choose " +
-            "DJProxy. On some phones it's under Developer options → Debugging.",
+        body = "${devOptionsPathHint()} → \"Select mock location app\" → choose DJProxy.",
         done = granted,
         action = {
             OutlinedButton(onClick = { openDeveloperSettings(context) }) {
@@ -254,29 +249,11 @@ private fun StepCard(
     GlassSurface(modifier = Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (done) {
-                    Icon(
-                        Icons.Filled.CheckCircle,
-                        contentDescription = "done",
-                        tint = DjColors.Emerald,
-                        modifier = Modifier.size(26.dp),
-                    )
-                } else {
-                    Text(
-                        text = index.toString(),
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .size(26.dp)
-                            .background(DjColors.AccentCyan, CircleShape)
-                            .padding(top = 2.dp),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    )
-                }
+                StepBadge(index = index, done = done)
                 icon()
-                Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = DjColors.TextPrimary)
+                Text(title, style = MaterialTheme.typography.titleMedium, color = DjColors.TextPrimary)
             }
-            Text(body, fontSize = 13.sp, color = DjColors.TextSecondary)
+            Text(body, style = MaterialTheme.typography.bodySmall, color = DjColors.TextSecondary)
             action()
         }
     }

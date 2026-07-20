@@ -269,8 +269,9 @@ class MainActivity : ComponentActivity() {
 
     private companion object {
         /** Deliberate branded hold so the DJProxy splash emblem is actually seen, not just
-         *  flashed for a frame. Short enough to never feel like a stall. */
-        const val SPLASH_HOLD_MS = 700L
+         *  flashed for a frame. Trimmed to keep the whole launch moment ~1.2–1.4s (system hold +
+         *  Compose hand-off) so it reads as snappy, never a stall. */
+        const val SPLASH_HOLD_MS = 500L
 
         /** Hard cap on an imported config stream (a .ovpn / proxy line is tiny). Mirrors
          *  SubscriptionFetcher's MAX_BYTES intent — abort rather than OOM on a hostile stream. */

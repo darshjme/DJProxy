@@ -1,5 +1,7 @@
 package ai.darshj.djproxy.ui.sheets
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -16,6 +18,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -23,9 +26,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import ai.darshj.djproxy.tor.PrivateDnsGuard
 import ai.darshj.djproxy.tor.TorGateway
 import ai.darshj.djproxy.tor.TorPhase
+import ai.darshj.djproxy.ui.components.GlassSurface
 import ai.darshj.djproxy.ui.theme.DjColors
 
 /**
@@ -38,6 +45,7 @@ import ai.darshj.djproxy.ui.theme.DjColors
 @Composable
 fun TorInfoSheet(onDismiss: () -> Unit) {
     val controller = TorGateway.controller
+    val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(
@@ -78,22 +86,60 @@ fun TorInfoSheet(onDismiss: () -> Unit) {
 
             when {
                 active -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(DjColors.TorPurple.copy(alpha = 0.14f))
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    GlassSurface(
+                        modifier = Modifier.fillMaxWidth(),
+                        cornerRadius = 16.dp,
+                        contentPadding = 16.dp,
+                        fill = Brush.verticalGradient(
+                            listOf(DjColors.TorPurple.copy(alpha = 0.22f), DjColors.TorPurple.copy(alpha = 0.08f)),
+                        ),
+                        borderBrush = Brush.linearGradient(
+                            listOf(DjColors.TorPurple, DjColors.TorPurple.copy(alpha = 0.3f)),
+                        ),
                     ) {
-                        Text("Tor active — .onion enabled", style = MaterialTheme.typography.titleMedium, color = DjColors.TorPurple)
-                        Text(
-                            "Your whole device is routing through Tor. You can browse .onion sites in Chrome " +
-                                "right now — they resolve through the tunnel's MapDNS + SOCKS5 path. Expect " +
-                                "slower speeds; that's Tor, not DJProxy.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = DjColors.TextSecondary,
-                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Tor active — .onion enabled", style = MaterialTheme.typography.titleMedium, color = DjColors.TorPurple)
+                            Text(
+                                "Your whole device is routing through Tor. You can browse .onion sites in Chrome " +
+                                    "right now — they resolve through the tunnel's MapDNS + SOCKS5 path. Expect " +
+                                    "slower speeds; that's Tor, not DJProxy.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = DjColors.TextSecondary,
+                            )
+                            if (PrivateDnsGuard.isStrictModeActive(context)) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(DjColors.Amber.copy(alpha = 0.14f))
+                                        .padding(10.dp),
+                                ) {
+                                    Text(
+                                        "Your device's Private DNS is set to a custom provider. That can stop " +
+                                            ".onion sites from resolving in Chrome (a device setting, not a " +
+                                            "DJProxy or Tor problem) — set Private DNS to Automatic to fix it.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = DjColors.TextPrimary,
+                                    )
+                                }
+                            }
+                            TextButton(onClick = {
+                                val onionUri = Uri.parse(
+                                    "https://duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion",
+                                )
+                                val plain = Intent(Intent.ACTION_VIEW, onionUri)
+                                val chrome = Intent(Intent.ACTION_VIEW, onionUri).setPackage("com.android.chrome")
+                                runCatching { context.startActivity(plain) }
+                                    .recoverCatching { context.startActivity(chrome) }
+                            }) {
+                                Text("Test a .onion site", color = DjColors.TorPurple)
+                            }
+                            Text(
+                                "Opens a known .onion mirror in your browser to confirm the tunnel is working.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = DjColors.TextTertiary,
+                            )
+                        }
                     }
                 }
                 phase == TorPhase.BOOTSTRAPPING -> {

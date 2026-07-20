@@ -27,6 +27,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -67,10 +68,10 @@ fun SplashHandoff(onFinished: () -> Unit, modifier: Modifier = Modifier, start: 
             wordmark.animateTo(1f, tween(320, easing = MotionTokens.ScreenEasing))
         }
         // Attribution rises after the wordmark; wait for it to finish before dismissing.
-        kotlinx.coroutines.delay(520)
+        kotlinx.coroutines.delay(360)
         attribution.animateTo(1f, tween(320, easing = MotionTokens.ScreenEasing))
         // Brief hold so "by darshj.ai" reads, then exhale the overlay into the control surface.
-        kotlinx.coroutines.delay(180)
+        kotlinx.coroutines.delay(120)
         exit.animateTo(1f, tween(260, easing = MotionTokens.ScreenEasing))
         onFinished()
     }
@@ -79,7 +80,17 @@ fun SplashHandoff(onFinished: () -> Unit, modifier: Modifier = Modifier, start: 
         modifier = modifier
             .fillMaxSize()
             .background(djBackgroundBrush())
-            .alpha(1f - exit.value),
+            .alpha(1f - exit.value)
+            // Swallow all touches for the splash's lifetime so a tap can't fall through to the live
+            // ProxyScreen (ConnectRing / source strip) composed underneath in the same Box. Self-
+            // removing: the whole overlay leaves the tree the instant onFinished() fires.
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        awaitPointerEvent().changes.forEach { it.consume() }
+                    }
+                }
+            },
         contentAlignment = Alignment.Center,
     ) {
         Column(
@@ -140,7 +151,7 @@ private fun AttributionLockup(alpha: Float) {
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.alpha(alpha),
     ) {
-        Text("by ", style = MaterialTheme.typography.labelMedium, color = DjColors.TextTertiary)
+        Text("by ", style = MaterialTheme.typography.labelMedium, color = DjColors.TextSecondary)
         Spacer(
             modifier = Modifier
                 .size(4.dp)
@@ -148,6 +159,6 @@ private fun AttributionLockup(alpha: Float) {
                 .background(DjColors.AccentCyan),
         )
         Spacer(Modifier.width(6.dp))
-        Text("darshj.ai", style = MaterialTheme.typography.labelMedium, color = DjColors.TextTertiary)
+        Text("darshj.ai", style = MaterialTheme.typography.labelMedium, color = DjColors.TextSecondary)
     }
 }

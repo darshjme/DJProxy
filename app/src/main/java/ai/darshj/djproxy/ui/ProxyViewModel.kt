@@ -31,9 +31,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 private const val LOG_HISTORY_CAP = 400
-/** Safety cap around Tor start() only. Bootstrap is already bounded inside the manager; this is a
- *  hard ceiling so a wedged engine can never leave the PREPARING_TOR arc spinning forever. */
-private const val TOR_BOOTSTRAP_TIMEOUT_MS = 90_000L
+/** Outer safety backstop around Tor start() only. Must stay ABOVE OnionProxyManager's own worst case
+ *  (BIND_TIMEOUT 20s + BOOTSTRAP_TIMEOUT 120s = 140s) so the manager's specific timeout reason
+ *  surfaces first; this generic VM-level cap is a pure last resort so a wedged engine can never leave
+ *  the PREPARING_TOR arc spinning forever. */
+private const val TOR_BOOTSTRAP_TIMEOUT_MS = 150_000L
 
 /** Everything the paste box + fields + inline error card need, independent of the tunnel's own
  *  [VpnState] (which the screen observes separately from [VpnController.state]). */
@@ -104,6 +106,11 @@ class ProxyViewModel : ViewModel() {
 
     private val _importChoices = MutableStateFlow<List<NamedConfig>?>(null)
     val importChoices: StateFlow<List<NamedConfig>?> = _importChoices.asStateFlow()
+
+    /** True while an [ingestExternal] parse/fetch is in flight, so the Import sheet can show a
+     *  spinner + disable its submit button instead of sitting inert (esp. a slow subscription GET). */
+    private val _importBusy = MutableStateFlow(false)
+    val importBusy: StateFlow<Boolean> = _importBusy.asStateFlow()
 
     /** Called once by the host activity after binding to the VPN service. Idempotent. */
     fun attachController(controller: VpnController) {
@@ -193,6 +200,37 @@ class ProxyViewModel : ViewModel() {
         }
     }
 
+    /**
+     * Applies the Tor loopback config through the EXISTING VpnController, but — unlike the plain
+     * [applyConfig] — tears Tor back down if the tunnel bring-up fails. Otherwise a failed apply would
+     * leave the Tor daemon running (and its "Tor active — .onion enabled" foreground notification up)
+     * with no tunnel actually carrying traffic — a dishonest, resource-leaking half-state. If the VPN
+     * service is not bound yet, that is also surfaced (and Tor stopped) instead of silently no-op'ing.
+     */
+    private fun applyTorConfig(config: ProxyConfig) {
+        val controller = _controller.value ?: run {
+            LogBus.w("UI", "Tor bootstrapped but the VPN service is not bound yet — stopping Tor.")
+            stopTorIfRunning()
+            _torMode.value = false
+            _uiState.value = _uiState.value.copy(
+                validationError = ProxyError.Io("The VPN service is still starting. Try enabling Tor again in a moment."),
+            )
+            return
+        }
+        _uiState.value = _uiState.value.copy(config = config, validationError = null)
+        viewModelScope.launch {
+            when (val result = controller.apply(config)) {
+                is ValidationResult.Success -> _uiState.value = _uiState.value.copy(validationError = null)
+                is ValidationResult.Failure -> {
+                    // The tunnel could not route through the loopback SOCKS — do not leave Tor orphaned.
+                    stopTorIfRunning()
+                    _torMode.value = false
+                    _uiState.value = _uiState.value.copy(validationError = result.error)
+                }
+            }
+        }
+    }
+
     fun onStop() {
         _controller.value?.stop()
     }
@@ -243,7 +281,7 @@ class ProxyViewModel : ViewModel() {
             _torBootstrap.value = null
             torJob = null
             when (started) {
-                is TorStartResult.Started -> applyConfig(started.proxyConfig)
+                is TorStartResult.Started -> applyTorConfig(started.proxyConfig)
                 is TorStartResult.Failed -> {
                     // start() already shut the engine down and set phase=FAILED on this path; just report.
                     _uiState.value = _uiState.value.copy(validationError = ProxyError.Io(started.reason))
@@ -287,31 +325,36 @@ class ProxyViewModel : ViewModel() {
     fun ingestExternal(raw: String, autoConnect: Boolean, allowNetwork: Boolean = true) {
         if (raw.isBlank()) return
         viewModelScope.launch {
-            when (val result = runCatching {
-                if (allowNetwork) ConfigImporter.import(raw) else ConfigImporter.importLocal(raw)
-            }.getOrElse {
-                _uiState.value = _uiState.value.copy(
-                    validationError = ProxyError.Io("Could not read that import — ${it.message ?: "unknown error"}"),
-                )
-                return@launch
-            }) {
-                is ImportResult.Single -> {
+            _importBusy.value = true
+            try {
+                when (val result = runCatching {
+                    if (allowNetwork) ConfigImporter.import(raw) else ConfigImporter.importLocal(raw)
+                }.getOrElse {
                     _uiState.value = _uiState.value.copy(
-                        config = result.config,
-                        pasteText = result.config.redacted(),
-                        pasteError = null,
-                        validationError = null,
+                        validationError = ProxyError.Io("Could not read that import — ${it.message ?: "unknown error"}"),
                     )
-                    _importPreview.value = ImportPreview(result.config, autoConnect)
+                    return@launch
+                }) {
+                    is ImportResult.Single -> {
+                        _uiState.value = _uiState.value.copy(
+                            config = result.config,
+                            pasteText = result.config.redacted(),
+                            pasteError = null,
+                            validationError = null,
+                        )
+                        _importPreview.value = ImportPreview(result.config, autoConnect)
+                    }
+                    is ImportResult.Many -> {
+                        _importChoices.value = result.configs
+                    }
+                    is ImportResult.Rejected -> {
+                        _uiState.value = _uiState.value.copy(
+                            validationError = ProxyError.Io("${result.error.message} — ${result.error.hint}"),
+                        )
+                    }
                 }
-                is ImportResult.Many -> {
-                    _importChoices.value = result.configs
-                }
-                is ImportResult.Rejected -> {
-                    _uiState.value = _uiState.value.copy(
-                        validationError = ProxyError.Io("${result.error.message} — ${result.error.hint}"),
-                    )
-                }
+            } finally {
+                _importBusy.value = false
             }
         }
     }

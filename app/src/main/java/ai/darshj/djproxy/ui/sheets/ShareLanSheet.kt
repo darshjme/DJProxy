@@ -5,22 +5,27 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,11 +36,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import ai.darshj.djproxy.qr.QrEncoder
 import ai.darshj.djproxy.ui.theme.DjColors
 import ai.darshj.djproxy.vpn.FeatureRegistry
 import ai.darshj.djproxy.vpn.seams.HotspotCapability
+import ai.darshj.djproxy.vpn.seams.ShareResult
 import ai.darshj.djproxy.vpn.seams.ShareState
 import kotlinx.coroutines.launch
 
@@ -58,8 +66,10 @@ fun ShareLanSheet(onDismiss: () -> Unit) {
         sheetState = sheetState,
         containerColor = DjColors.CharcoalRaised,
     ) {
+      Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
         Column(
             modifier = Modifier
+                .widthIn(max = 480.dp)
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 28.dp),
@@ -79,7 +89,10 @@ fun ShareLanSheet(onDismiss: () -> Unit) {
 
             val capability by controller.capability.collectAsState()
             val share by controller.share.collectAsState()
-            var requireAuth by remember { mutableStateOf(true) }
+            var shareError by remember { mutableStateOf<String?>(null) }
+
+            // Clear a stale failure the moment a share actually goes live.
+            LaunchedEffect(share) { if (share !is ShareState.Off) shareError = null }
 
             Text(
                 when (capability) {
@@ -91,7 +104,8 @@ fun ShareLanSheet(onDismiss: () -> Unit) {
                             "Android, tethered traffic itself is not transparently proxied — point the " +
                             "other device's proxy settings at this endpoint."
                     HotspotCapability.UNAVAILABLE ->
-                        "Sharing is unavailable right now — connect the proxy first, then reopen this sheet."
+                        "No Wi-Fi hotspot or network to share over. Turn on your Wi-Fi hotspot (or join a " +
+                            "Wi-Fi network), then reopen this sheet."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = DjColors.TextSecondary,
@@ -99,28 +113,45 @@ fun ShareLanSheet(onDismiss: () -> Unit) {
 
             val active = share !is ShareState.Off
             if (!active && capability != HotspotCapability.UNAVAILABLE) {
-                androidx.compose.foundation.layout.Row(
+                // The LAN share is ALWAYS password-protected (the controller mints a credential
+                // regardless) — state that honestly instead of a switch that implies an open relay.
+                Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Text("Require a password", style = MaterialTheme.typography.bodyMedium, color = DjColors.TextPrimary)
-                    Switch(
-                        checked = requireAuth,
-                        onCheckedChange = { requireAuth = it },
-                        colors = SwitchDefaults.colors(checkedThumbColor = DjColors.AccentCyan, checkedTrackColor = DjColors.AccentCyanDeep),
+                    Icon(
+                        Icons.Rounded.Lock,
+                        contentDescription = null,
+                        tint = DjColors.AccentCyan,
+                        modifier = Modifier.size(16.dp),
                     )
+                    Spacer(Modifier.width(6.dp))
+                    Text("Always password-protected", style = MaterialTheme.typography.labelMedium, color = DjColors.TextSecondary)
                 }
                 Button(
-                    onClick = { scope.launch { controller.startLanShare(requireAuth) } },
+                    onClick = {
+                        scope.launch {
+                            val result = controller.startLanShare(true)
+                            shareError = (result as? ShareResult.Fail)?.reason
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Start LAN proxy") }
                 if (capability == HotspotCapability.ROOT_TRANSPARENT_AVAILABLE) {
                     OutlinedButton(
-                        onClick = { scope.launch { controller.startRootTransparent() } },
+                        onClick = {
+                            scope.launch {
+                                val result = controller.startRootTransparent()
+                                shareError = (result as? ShareResult.Fail)?.reason
+                            }
+                        },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Start transparent redirect (root)") }
                 }
+            }
+
+            shareError?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = DjColors.Rose)
             }
 
             when (val s = share) {
@@ -141,6 +172,7 @@ fun ShareLanSheet(onDismiss: () -> Unit) {
             }
             Spacer(Modifier.height(2.dp))
         }
+      }
     }
 }
 
@@ -165,7 +197,12 @@ private fun EndpointCard(endpoint: String, cred: String?) {
 @Composable
 private fun QrBlock(payload: String?) {
     if (payload.isNullOrBlank()) return
-    val bitmap = remember(payload) { runCatching { QrEncoder.encodeQr(payload, 512) }.getOrNull() }
+    // Encode at (or above) the actual physical-pixel size of the 220dp box so the QR is native-res on
+    // high-density panels instead of being upscaled from a fixed 512; FilterQuality.None keeps module
+    // edges hard so the exact surface meant to be scanned stays crisp.
+    val density = LocalDensity.current
+    val qrPx = remember(density) { with(density) { 220.dp.roundToPx() }.coerceIn(384, 768) }
+    val bitmap = remember(payload, qrPx) { runCatching { QrEncoder.encodeQr(payload, qrPx) }.getOrNull() }
     if (bitmap != null) {
         Box(
             modifier = Modifier.fillMaxWidth(),
@@ -174,6 +211,7 @@ private fun QrBlock(payload: String?) {
             Image(
                 bitmap = bitmap,
                 contentDescription = "Scan to configure this device as a proxy client",
+                filterQuality = FilterQuality.None,
                 modifier = Modifier
                     .size(220.dp)
                     .clip(RoundedCornerShape(16.dp))

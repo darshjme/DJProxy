@@ -18,13 +18,14 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -33,7 +34,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.material.icons.Icons
@@ -57,9 +61,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ai.darshj.djproxy.tor.TorGateway
+import ai.darshj.djproxy.ui.adaptive.responsiveContentPadding
 import ai.darshj.djproxy.ui.components.ConnectRing
 import ai.darshj.djproxy.ui.components.GlassSurface
 import ai.darshj.djproxy.ui.components.StageLabel
@@ -71,6 +82,7 @@ import ai.darshj.djproxy.ui.sheets.TorInfoSheet
 import ai.darshj.djproxy.ui.theme.DjColors
 import ai.darshj.djproxy.ui.theme.MotionTokens
 import ai.darshj.djproxy.ui.theme.djBackgroundBrush
+import ai.darshj.djproxy.ui.theme.djBrandTriBrush
 import ai.darshj.djproxy.ui.theme.rememberAnimationsEnabled
 import ai.darshj.djproxy.vpn.FeatureRegistry
 import ai.darshj.djproxy.vpn.VpnStage
@@ -93,6 +105,7 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
     val torBootstrap by viewModel.torBootstrap.collectAsStateWithLifecycle()
     val importPreview by viewModel.importPreview.collectAsStateWithLifecycle()
     val importChoices by viewModel.importChoices.collectAsStateWithLifecycle()
+    val importBusy by viewModel.importBusy.collectAsStateWithLifecycle()
 
     var route by rememberSaveable(stateSaver = RouteSaver) { mutableStateOf<Route>(Route.Home) }
     var sheet by rememberSaveable { mutableStateOf(HomeSheet.None) }
@@ -166,23 +179,27 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
                     onOpenSettings = { route = Route.Settings },
                     onOpenSheet = { sheet = it },
                 )
-                Route.Settings -> LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 24.dp),
-                ) {
-                    item {
-                        SettingsScreen(
-                            vpnState = vpnState,
-                            onBack = { route = Route.Home },
-                            onOpenAbout = { route = Route.About },
-                        )
+                Route.Settings -> BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = responsiveContentPadding(maxWidth),
+                    ) {
+                        item {
+                            SettingsScreen(
+                                vpnState = vpnState,
+                                onBack = { route = Route.Home },
+                                onOpenAbout = { route = Route.About },
+                            )
+                        }
                     }
                 }
-                Route.About -> LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 24.dp),
-                ) {
-                    item { AboutContent(onBack = { route = Route.Settings }) }
+                Route.About -> BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = responsiveContentPadding(maxWidth),
+                    ) {
+                        item { AboutContent(onBack = { route = Route.Settings }) }
+                    }
                 }
             }
         }
@@ -192,6 +209,8 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
             HomeSheet.Import -> ImportSheet(
                 preview = importPreview,
                 choices = importChoices,
+                error = ui.validationError,
+                busy = importBusy,
                 onIngest = viewModel::ingestExternal,
                 onChoose = viewModel::chooseImport,
                 onConnectPreview = {
@@ -202,12 +221,18 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
                 onDismiss = {
                     viewModel.consumeImportPreview()
                     viewModel.clearImportChoices()
+                    viewModel.dismissValidationError()
                     sheet = HomeSheet.None
                 },
             )
             HomeSheet.Scan -> ScanSheet(
                 onResult = { raw -> viewModel.ingestExternal(raw, autoConnect = false) },
-                onDismiss = { sheet = HomeSheet.None },
+                onDismiss = {
+                    viewModel.dismissValidationError()
+                    sheet = HomeSheet.None
+                },
+                rejectionMessage = ui.validationError?.message,
+                onRetry = viewModel::dismissValidationError,
             )
             HomeSheet.ManualEdit -> ManualEditSheet(
                 config = ui.config,
@@ -243,15 +268,26 @@ private fun HomeContent(
     val connected = vpnState.stage == VpnStage.CONNECTED || vpnState.stage == VpnStage.RECONNECTING
     // Over Tor the applied config is the internal loopback socks5://127.0.0.1:9050 — show an honest
     // "Tor circuit" identity for the single line of truth instead of exposing localhost plumbing.
-    val redactedLine = if (torActive || torBootstrap != null) {
+    // Whenever Tor mode is engaged the applied config is always the internal loopback
+    // socks5://127.0.0.1:9050 — show an honest "Tor circuit" identity for the WHOLE session (bootstrap,
+    // the post-bootstrap tunnel bring-up, and active) instead of ever leaking localhost plumbing during
+    // the CONNECTING window.
+    val redactedLine = if (torMode || torBootstrap != null) {
         "Tor circuit"
     } else {
         vpnState.proxyRedacted ?: ui.config.takeIf { it.host.isNotBlank() }?.redacted()
     }
+    // On a fresh launch there is genuinely nothing to connect to yet — used to steer the first ring
+    // tap to "add a source" instead of punishing it with a validation error.
+    val hasSource = ui.config.host.isNotBlank() || torMode
 
-    LazyColumn(
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+      // Centre + cap the reading column on the Fold7 unfolded / wide panes; identical 20dp gutter on
+      // phone widths (zero regression).
+      val pad = responsiveContentPadding(maxWidth)
+      LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 24.dp),
+        contentPadding = pad,
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         item {
@@ -261,12 +297,36 @@ private fun HomeContent(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column {
-                    Text("DJProxy", style = MaterialTheme.typography.displayMedium, color = DjColors.TextPrimary)
-                    Text(
-                        "Device-wide, fail-closed proxy tunnel.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = DjColors.TextSecondary,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // The same tri-tone brand ring as the splash + ConnectRing, so splash -> home ->
+                        // about all carry one consistent mark.
+                        Canvas(modifier = Modifier.size(28.dp)) {
+                            val c = Offset(size.width / 2f, size.height / 2f)
+                            drawArc(
+                                brush = djBrandTriBrush(c),
+                                startAngle = -90f,
+                                sweepAngle = 360f,
+                                useCenter = false,
+                                topLeft = Offset(2.dp.toPx(), 2.dp.toPx()),
+                                size = Size(size.width - 4.dp.toPx(), size.height - 4.dp.toPx()),
+                                style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round),
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Text("DJProxy", style = MaterialTheme.typography.displayMedium, color = DjColors.TextPrimary)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Device-wide, fail-closed proxy tunnel.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = DjColors.TextSecondary,
+                        )
+                        Text(
+                            "  ·  by darshj.ai",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = DjColors.TextTertiary,
+                        )
+                    }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { onOpenSheet(HomeSheet.ShareLan) }) {
@@ -289,40 +349,79 @@ private fun HomeContent(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    if (torActive) TorOnionOrbit()
+                BoxWithConstraints(contentAlignment = Alignment.Center) {
+                    // The hero owns more of the canvas on the unfolded Fold7 (up to 280dp) instead of
+                    // floating small in empty space; identical 200dp on a folded phone.
+                    val ringSize = (maxWidth * 0.6f).coerceIn(200.dp, 280.dp)
+                    if (torActive) TorOnionOrbit(size = ringSize * 1.12f)
                     ConnectRing(
                         stage = vpnState.stage,
-                        onClick = viewModel::onRingTap,
+                        onClick = {
+                            // First run (no source, not connected): the first tap steers to "add a
+                            // proxy" instead of dropping a validation error under the ring.
+                            if (!hasSource &&
+                                vpnState.stage != VpnStage.CONNECTED &&
+                                vpnState.stage != VpnStage.RECONNECTING
+                            ) {
+                                onOpenSheet(HomeSheet.ManualEdit)
+                            } else {
+                                viewModel.onRingTap()
+                            }
+                        },
+                        ringSize = ringSize,
                         torBootstrapPct = torBootstrap,
                     )
                 }
                 Spacer(Modifier.height(8.dp))
-                if (torBootstrap != null) {
-                    Text(
-                        "Building Tor circuit… $torBootstrap%",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = DjColors.TorPurple,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                } else {
-                    StageLabel(stage = vpnState.stage)
-                }
-                redactedLine?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = DjColors.TextTertiary,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                }
-                if (!controllerReady) {
-                    Text(
-                        "Preparing VPN service…",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = DjColors.TextTertiary,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
+                // Reserve a stable height so the ring doesn't jitter up/down as the sub-label lines
+                // appear/disappear across idle -> connecting -> connected -> tor-bootstrap.
+                Column(
+                    modifier = Modifier.heightIn(min = 84.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    if (torBootstrap != null) {
+                        Text(
+                            "Building Tor circuit… $torBootstrap%",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = DjColors.TorPurple,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                        // Make the cancel gesture discoverable — the ring accepts a tap to abort the
+                        // bootstrap so it is never a silent, uncancellable wait.
+                        Text(
+                            "Tap the ring to cancel",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = DjColors.TextTertiary,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    } else {
+                        StageLabel(stage = vpnState.stage)
+                    }
+                    redactedLine?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = DjColors.TextTertiary,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                    // True first-run empty state — guide the user to add a source instead of a blank ring.
+                    if (redactedLine == null && vpnState.stage == VpnStage.IDLE && !hasSource && torBootstrap == null) {
+                        Text(
+                            "Add a proxy to begin — tap the ring, or use Edit / Scan / Import below",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = DjColors.TextSecondary,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                    if (!controllerReady) {
+                        Text(
+                            "Preparing VPN service…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = DjColors.TextTertiary,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
                 }
                 AnimatedVisibility(visible = torActive, enter = fadeIn() + scaleIn(initialScale = 0.85f), exit = fadeOut()) {
                     TorActivePill(modifier = Modifier.padding(top = 12.dp), onClick = { onOpenSheet(HomeSheet.TorInfo) })
@@ -400,12 +499,13 @@ private fun HomeContent(
         item {
             DetailsDisclosure(state = vpnState, logs = logs, modifier = Modifier.fillMaxWidth())
         }
+      }
     }
 }
 
 /** The Tor "onion layers" orbit — a slow dashed concentric ring behind the hero while Tor is up. */
 @Composable
-private fun TorOnionOrbit() {
+private fun TorOnionOrbit(size: Dp = 224.dp) {
     val animate = rememberAnimationsEnabled()
     val infinite = rememberInfiniteTransition(label = "onion-orbit")
     val turn = if (animate) {
@@ -415,7 +515,7 @@ private fun TorOnionOrbit() {
             label = "onion-turn",
         ).value
     } else 0f
-    Canvas(modifier = Modifier.size(224.dp)) {
+    Canvas(modifier = Modifier.size(size)) {
         val stroke = Stroke(
             width = 2.dp.toPx(),
             pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 16f)),
@@ -454,6 +554,10 @@ private fun TorActivePill(modifier: Modifier = Modifier, onClick: () -> Unit) {
                 indication = null,
                 onClick = onClick,
             )
+            .semantics {
+                role = Role.Button
+                contentDescription = "Tor active, dot onion enabled. Show Tor details."
+            }
             .background(DjColors.TorPurple.copy(alpha = 0.18f))
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -471,6 +575,7 @@ private fun TorActivePill(modifier: Modifier = Modifier, onClick: () -> Unit) {
 
 @Composable
 private fun AboutContent(onBack: () -> Unit) {
+    val uriHandler = LocalUriHandler.current
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
@@ -490,20 +595,30 @@ private fun AboutContent(onBack: () -> Unit) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("DJProxy", style = MaterialTheme.typography.titleMedium, color = DjColors.TextPrimary)
                 Text(
-                    "Version ${ai.darshj.djproxy.BuildConfig.VERSION_NAME}",
+                    "Version ${ai.darshj.djproxy.BuildConfig.VERSION_NAME} " +
+                        "(build ${ai.darshj.djproxy.BuildConfig.VERSION_CODE})",
                     style = MaterialTheme.typography.bodyMedium,
                     color = DjColors.TextSecondary,
                 )
+                Text("Created by Darshankumar Joshi", style = MaterialTheme.typography.bodyMedium, color = DjColors.TextPrimary)
+                // Real, tappable affordances — no more link-coloured dead text.
                 Text(
-                    "Device-wide, fail-closed SOCKS/HTTP proxy tunnel with optional Tor onion routing. " +
-                        "MIT-licensed. by darshj.ai",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = DjColors.TextTertiary,
-                )
-                Text(
-                    "Open source: github.com/darshjme/DJProxy",
+                    "darshj.ai",
                     style = MaterialTheme.typography.bodySmall,
                     color = DjColors.AccentCyan,
+                    modifier = Modifier.clickable { uriHandler.openUri("https://darshj.ai") },
+                )
+                Text(
+                    "Device-wide, fail-closed SOCKS/HTTP proxy tunnel with optional Tor onion routing. " +
+                        "MIT-licensed.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = DjColors.TextSecondary,
+                )
+                Text(
+                    "Source · github.com/darshjme/DJProxy",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = DjColors.AccentCyan,
+                    modifier = Modifier.clickable { uriHandler.openUri("https://github.com/darshjme/DJProxy") },
                 )
                 Text(
                     "Bundled: hev-socks5-tunnel · Tor (guardianproject) · ZXing · CameraX. See each " +

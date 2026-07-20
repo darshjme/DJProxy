@@ -152,6 +152,11 @@ dependencies {
     // 0.4.5.7 (the version DESIGN_V4 names) IS on Maven Central verbatim.
     implementation("info.guardianproject:tor-android:0.4.7.14")
     implementation("info.guardianproject:jtorctl:0.4.5.7")
+    // REQUIRED by org.torproject.jni.TorService: it uses androidx LocalBroadcastManager in onCreate(),
+    // but tor-android does NOT pull it transitively (LocalBroadcastManager is deprecated and no longer a
+    // default androidx dep). Without this, enabling Tor crashed instantly with NoClassDefFoundError:
+    // LocalBroadcastManager (confirmed on-device: TorService.onCreate -> LocalBroadcastManager).
+    implementation("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")

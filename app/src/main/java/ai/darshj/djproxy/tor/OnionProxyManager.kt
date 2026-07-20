@@ -38,7 +38,12 @@ interface OnionProxyManager {
      */
     suspend fun bootstrap(onProgress: (Int) -> Unit): TorLaunchResult
 
-    /** Stop Tor and release every binding/receiver. Idempotent. MUST NOT throw. */
+    /**
+     * Revert to normal routing (Tor "disabled"). Implementations MAY keep the tor engine **warm** rather
+     * than tearing it down — the embedded tor daemon runs `tor_run_main()` in-process and is not
+     * re-entrant, so a live implementation keeps it running and lets [bootstrap] reuse it on the next
+     * enable (the real engine is fully released only on process death). Idempotent. MUST NOT throw.
+     */
     fun shutdown()
 
     companion object {
@@ -96,8 +101,60 @@ class GuardianOnionProxyManager(
     @Volatile
     private var lastStatus: String = ""
 
+    /**
+     * The live, already-bootstrapped guardianproject service, kept **warm** for the whole process
+     * lifetime once Tor first comes up. This is the crux of the re-enable fix: tor-android runs the real
+     * tor daemon by calling the native `tor_run_main()` **in-process via JNI**, and tor is NOT re-entrant
+     * — invoking `tor_run_main()` a second time in the same process aborts natively (observed on-device:
+     * `SIGABRT` inside `libtor.so parse_rfc1123_time` right after a second `Acquired lock`). So we launch
+     * tor exactly once per process: after the first successful bootstrap we cache the service here and
+     * every later [bootstrap] reuses it instead of re-launching. The daemon is released only when the
+     * process itself dies (which naturally gives the next launch a pristine process — see [shutdown]).
+     */
+    @Volatile
+    private var warmService: GpTorService? = null
+
+    /**
+     * True once `tor_run_main()` has been invoked in THIS process (whether it went on to succeed or
+     * fail). Guards the non-reentrancy invariant: if tor was started but is no longer usable (e.g. it
+     * failed and exited, or the OS reaped the service without killing the process), we must NOT start it
+     * again in-process — we fail cleanly and ask for an app restart rather than risk the native abort.
+     */
+    @Volatile
+    private var everStarted: Boolean = false
+
     override suspend fun bootstrap(onProgress: (Int) -> Unit): TorLaunchResult = withContext(Dispatchers.IO) {
         runCatching {
+            // ── Warm-reuse fast path ────────────────────────────────────────────────────────────────
+            // Tor is already up from an earlier enable in this process: hand back the live SOCKS port
+            // WITHOUT re-launching tor (tor_run_main is not re-entrant — a second call aborts natively).
+            warmService?.let { svc ->
+                // Confirm the warm daemon is still actually alive (control port answers). If the OS reaped
+                // the service while the process lived on, its control connection is dead — we can't safely
+                // relaunch tor in-process, so fail closed with a clear message instead of routing the whole
+                // device into a dead loopback SOCKS (which would just surface as "connection refused").
+                val alive = readBootstrapPercent(svc) != null || lastStatus == GpTorService.STATUS_ON
+                if (alive) {
+                    onProgress(100)
+                    socksPort = readSocksPort(svc)
+                    LogBus.i(TAG, "Tor already warm — reusing SOCKS5 127.0.0.1:$socksPort (no relaunch)")
+                    return@runCatching TorLaunchResult.Ready(socksPort)
+                }
+                warmService = null
+                LogBus.w(TAG, "Warm Tor engine is no longer responsive; an app restart is needed to reconnect.")
+                return@runCatching TorLaunchResult.Failed(
+                    "Tor stopped in the background. Fully close and reopen DJProxy to reconnect.",
+                )
+            }
+            // Tor was launched once already but is no longer warm (failed/exited without process death).
+            // Re-invoking tor_run_main() in this same process would SIGABRT, so fail closed and clearly.
+            if (everStarted) {
+                LogBus.w(TAG, "Tor already ran once this session and stopped; reopen DJProxy to use Tor again.")
+                return@runCatching TorLaunchResult.Failed(
+                    "Tor already ran once this session. Fully close and reopen DJProxy to use Tor again.",
+                )
+            }
+
             registerStatusReceiver()
             // Ensure the library broadcasts its STATUS to us (newer tor-android targets a package).
             runCatching { GpTorService.setBroadcastPackageName(appContext.packageName) }
@@ -114,8 +171,17 @@ class GuardianOnionProxyManager(
             connection = conn
 
             val intent = Intent(appContext, GpTorService::class.java).setAction(GpTorService.ACTION_START)
-            // Foreground so tor outlives the Activity; bind so we can read the control port + real ports.
-            runCatching { ContextCompat.startForegroundService(appContext, intent) }
+            // Start with startService (NOT startForegroundService) + bind. tor-android 0.4.7.14's
+            // TorService posts its own notification but does NOT call startForeground() itself, so
+            // startForegroundService() would break its "must call startForeground within ~10s" promise
+            // and ANR-kill the process (confirmed on-device: "startForegroundService() did not then call
+            // startForeground()"). startService still delivers ACTION_START to onStartCommand (tor boots),
+            // and the app stays alive via our own DjVpnService FGS + this active binding. Foreground-start
+            // is allowed because the user is interacting (they just tapped Connect).
+            // Mark BEFORE the launch: from here on tor_run_main has (or will have) run in this process,
+            // so any later start must go through the warm-reuse / fail-closed guards above, not relaunch.
+            everStarted = true
+            runCatching { appContext.startService(intent) }
             val didBind = runCatching {
                 appContext.bindService(intent, conn, Context.BIND_AUTO_CREATE)
             }.getOrDefault(false)
@@ -139,6 +205,9 @@ class GuardianOnionProxyManager(
                 val ready = (pct != null && pct >= 100) || lastStatus == GpTorService.STATUS_ON
                 if (ready) {
                     socksPort = readSocksPort(svc)
+                    // Keep this service warm for the rest of the process: subsequent enables reuse it
+                    // instead of re-launching tor (which would abort natively — tor is not re-entrant).
+                    warmService = svc
                     onProgress(100)
                     LogBus.i(TAG, "Tor bootstrapped 100% on SOCKS5 127.0.0.1:$socksPort")
                     return@runCatching TorLaunchResult.Ready(socksPort)
@@ -152,19 +221,24 @@ class GuardianOnionProxyManager(
         }
     }
 
+    /**
+     * "Disable Tor" — reverts DJProxy to normal routing. Deliberately does **NOT** kill the tor daemon.
+     *
+     * tor runs via `tor_run_main()` in-process and is not re-entrant: stopping the service (its
+     * `onDestroy` ends the tor thread) and then re-launching on the next enable makes the second
+     * `tor_run_main()` abort the whole process (`SIGABRT` in `libtor.so`, confirmed on-device). So we
+     * keep the daemon **warm** and simply let it idle — no traffic reaches it once [TorControllerImpl]
+     * has switched the VPN routing away, so an idle loopback tor is harmless. The next enable takes the
+     * warm-reuse fast path in [bootstrap] (instant, no relaunch).
+     *
+     * The daemon (and its binding/receiver) are released for real only when the process dies, which is
+     * exactly what we want: a fresh process is the ONLY safe place to call `tor_run_main()` again. If the
+     * OS reaps this bound service while the process lives on, [everStarted] makes the next [bootstrap]
+     * fail closed (asking for an app restart) rather than risk the native abort. Idempotent, never throws.
+     */
     override fun shutdown() {
-        runCatching {
-            connection?.let { appContext.unbindService(it) }
-        }
-        connection = null
-        runCatching {
-            appContext.stopService(Intent(appContext, GpTorService::class.java))
-        }
-        runCatching {
-            receiver?.let { appContext.unregisterReceiver(it) }
-        }
-        receiver = null
-        lastStatus = ""
+        // Intentionally a no-op for the daemon — see KDoc. Kept as a named seam so callers (and future
+        // maintainers) have one obvious place expressing the "we never tear tor down mid-process" rule.
     }
 
     /** Reads `status/bootstrap-phase` off the control port and extracts `PROGRESS=NN`, or null on any fault. */

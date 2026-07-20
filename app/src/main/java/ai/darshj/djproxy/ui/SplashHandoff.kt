@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
@@ -31,6 +32,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import ai.darshj.djproxy.ui.components.DjMonogram
 import ai.darshj.djproxy.ui.theme.DjColors
 import ai.darshj.djproxy.ui.theme.MotionTokens
 import ai.darshj.djproxy.ui.theme.djBackgroundBrush
@@ -76,6 +78,13 @@ fun SplashHandoff(onFinished: () -> Unit, modifier: Modifier = Modifier, start: 
         onFinished()
     }
 
+    // §ui-center: NOT rehosted on CenteredScreen — unlike Home/Onboarding this content already has
+    // nowhere to overflow (a fixed 120dp ring + two short text lines, no `fillMaxWidth` anywhere), so
+    // it is already centred and never stretches edge-to-edge on the Fold7 unfolded pane. Swapping in
+    // CenteredScreen's `verticalScroll` would add a second gesture recogniser competing with the
+    // touch-swallow `pointerInput` below for zero visual benefit, on the one screen where the beat's
+    // timing must stay exactly as tuned — so the manual Box+Column scaffold stays, and the only
+    // §ui-center change here is the [DjMonogram] brand mark riding in alongside the wordmark.
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -120,14 +129,24 @@ fun SplashHandoff(onFinished: () -> Unit, modifier: Modifier = Modifier, start: 
 
             Spacer(Modifier.height(28.dp))
 
-            Text(
-                "DJProxy",
-                style = MaterialTheme.typography.displayMedium,
-                color = DjColors.TextPrimary,
+            // The DJ monogram rides in with the wordmark (same alpha + rise) — the same lettermark
+            // now shown beside "DJProxy" in the Home header and large on About, so splash -> home ->
+            // about all carry one consistent brand mark. `showBadge = false`: the splash's own dark
+            // wash is already the backdrop, a second dark badge box here would just double up.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .alpha(wordmark.value)
                     .riseBy((1f - wordmark.value) * 8f),
-            )
+            ) {
+                DjMonogram(size = 28.dp, showBadge = false)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "DJProxy",
+                    style = MaterialTheme.typography.displayMedium,
+                    color = DjColors.TextPrimary,
+                )
+            }
 
             Spacer(Modifier.height(8.dp))
 
@@ -147,7 +166,7 @@ private fun Modifier.riseBy(dpAmount: Float): Modifier = this.layout { measurabl
 
 @Composable
 private fun AttributionLockup(alpha: Float) {
-    androidx.compose.foundation.layout.Row(
+    Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.alpha(alpha),
     ) {

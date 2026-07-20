@@ -4,4 +4,16 @@
     <!-- Quick Settings tile labels stay short so they never truncate mid-word on the tile. -->
     <string name="tile_connect_label">DJProxy</string>
     <string name="tile_tor_label">Tor</string>
+
+    <!-- adblock lane (DESIGN_V6): SourceStrip Block-ads chip label + the honest CONNECT-time caveat
+         surfaced by AdblockSettingsPanel. The lane's own composables ship literal fallbacks, so these
+         exist for callers that prefer stringResource + future localization. -->
+    <string name="tile_adblock_label">Block ads</string>
+    <string name="adblock_connect_time_caveat">With route-DNS on, ad hosts are refused at connect time (brief loading, then blocked) — leak-safe.</string>
+
+    <!-- servers-tab / vpngate lane (DESIGN_V6): the third Servers segment title + the free-refresh
+         confirmation line. ServersScreen currently hardcodes its copy in Kotlin to match the screen's
+         existing all-hardcoded idiom; these are provided per platform_edits for any localized caller. -->
+    <string name="servers_tab_vpngate">VPN Gate</string>
+    <string name="servers_free_updated_fmt">Updated · %1$d servers · %2$s</string>
 </resources>

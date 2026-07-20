@@ -13,7 +13,16 @@
          NOTE: the mock-location test-provider API (addTestProvider/setTestProviderLocation, Fused
          setMockMode) is gated by the Developer-Options "mock location app" app-op, NOT by the
          ACCESS_*_LOCATION runtime permissions — and nothing in the app reads the real device
-         location — so those dangerous grants are deliberately NOT declared (Play-review + privacy). -->
+         location — so those dangerous grants are deliberately NOT declared (Play-review + privacy).
+         ACCESS_MOCK_LOCATION is the ONE exception: it is a signature/system-only permission that is
+         never actually GRANTED to a normal app, but its mere DECLARATION is what makes DJProxy appear
+         in Settings -> Developer options -> "Select mock location app" (the picker enumerates only
+         packages that declare it). That developer-options selection — not this permission — is what
+         authorizes addTestProvider/setTestProviderLocation. tools:ignore silences the expected
+         MockLocation/ProtectedPermissions lint (this is intentional and the whole mock-location fix). -->
+    <uses-permission
+        android:name="android.permission.ACCESS_MOCK_LOCATION"
+        tools:ignore="MockLocation,ProtectedPermissions" />
 
     <!-- hotspot lane (DESIGN_V3 §6): discovering the hotspot/LAN interface IP to bind LanShareServer,
          and (API 33+) enumerating nearby Wi-Fi without also requiring location permission. The app
@@ -256,6 +265,18 @@
                 android:value="androidx.startup" />
             <meta-data
                 android:name="ai.darshj.djproxy.tor.TorRegistrar"
+                android:value="androidx.startup" />
+            <!-- adblock lane (DESIGN_V6): builds Blocklist+AdblockController, sets the frozen-core
+                 FeatureRegistry.blockedHostPredicate seam + wraps dnsResolverFactory, publishes
+                 AdblockGateway.controller for the ui toggle, and adds AdblockSettingsPanel. -->
+            <meta-data
+                android:name="ai.darshj.djproxy.adblock.AdblockRegistrar"
+                android:value="androidx.startup" />
+            <!-- vpngate lane (DESIGN_V6): builds the RemoteVpnGateSource + VpnGateController, publishes
+                 VpnGateGateway.controller for the Servers-screen VPN Gate tab, and adds
+                 VpnGateSettingsPanel. Catalog browser + .ovpn hand-off — never its own tunnel/FGS. -->
+            <meta-data
+                android:name="ai.darshj.djproxy.vpngate.VpnGateRegistrar"
                 android:value="androidx.startup" />
         </provider>
 

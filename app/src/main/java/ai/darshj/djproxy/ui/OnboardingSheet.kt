@@ -8,28 +8,18 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeveloperMode
 import androidx.compose.material.icons.filled.LocationOff
 import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,16 +29,17 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import ai.darshj.djproxy.location.LocationCapabilityDetector
+import ai.darshj.djproxy.ui.components.CenteredScreen
+import ai.darshj.djproxy.ui.components.DjButton
+import ai.darshj.djproxy.ui.components.DjOutlineButton
 import ai.darshj.djproxy.ui.components.GlassSurface
 import ai.darshj.djproxy.ui.components.StepBadge
 import ai.darshj.djproxy.ui.theme.DjBackgroundBrush
 import ai.darshj.djproxy.ui.theme.DjColors
+import ai.darshj.djproxy.ui.theme.DjSpacing
 import kotlinx.coroutines.delay
 
 /**
@@ -92,13 +83,13 @@ fun OnboardingSheet(onFinish: () -> Unit) {
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(DjBackgroundBrush)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 22.dp, vertical = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
+    // §ui-center: CenteredScreen replaces the hand-rolled fillMaxSize+verticalScroll+padding Column —
+    // Onboarding is the same "short, fixed cluster" shape as Home, so it gets the same ~600dp reading
+    // column (no more edge-to-edge stretch on the Fold7 unfolded pane) and the same centred-at-rest /
+    // scrolls-if-it-overflows behaviour, instead of a bespoke 22/28dp padding nobody else shares.
+    CenteredScreen(
+        modifier = Modifier.background(DjBackgroundBrush),
+        verticalArrangement = Arrangement.spacedBy(DjSpacing.xl, Alignment.CenterVertically),
     ) {
         when (stage) {
             Stage.CHOICE -> LocationChoiceContent(
@@ -136,8 +127,8 @@ private fun LocationChoiceContent(onChooseYes: () -> Unit, onChooseNo: () -> Uni
     )
 
     GlassSurface(modifier = Modifier.fillMaxWidth()) {
-        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(DjSpacing.lg)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DjSpacing.md)) {
                 Icon(Icons.Filled.LocationOn, contentDescription = null, tint = DjColors.AccentCyan)
                 Text(
                     "Do you want to match your GPS location to the proxy's region?",
@@ -158,22 +149,19 @@ private fun LocationChoiceContent(onChooseYes: () -> Unit, onChooseNo: () -> Uni
 
     Spacer(Modifier.height(4.dp))
 
-    Button(
+    DjButton(
         onClick = onChooseYes,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
     ) {
-        Icon(Icons.Filled.LocationOn, contentDescription = null, modifier = Modifier.size(18.dp))
+        Icon(Icons.Filled.LocationOn, contentDescription = null, modifier = Modifier.size(DjSpacing.lg))
         Spacer(Modifier.width(8.dp))
         Text("Enable location matching")
     }
-    OutlinedButton(
+    DjOutlineButton(
         onClick = onChooseNo,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = DjColors.TextSecondary),
     ) {
-        Icon(Icons.Filled.LocationOff, contentDescription = null, modifier = Modifier.size(18.dp))
+        Icon(Icons.Filled.LocationOff, contentDescription = null, modifier = Modifier.size(DjSpacing.lg))
         Spacer(Modifier.width(8.dp))
         Text("No thanks, just proxy my traffic")
     }
@@ -201,7 +189,7 @@ private fun GrantStepsContent(context: Context, granted: Boolean, onFinish: () -
             "\"You are now a developer\".",
         done = false,
         action = {
-            OutlinedButton(onClick = { openDeviceInfoSettings(context) }) {
+            DjOutlineButton(onClick = { openDeviceInfoSettings(context) }, contentColor = DjColors.AccentCyan) {
                 Text("Open About phone")
             }
         },
@@ -214,7 +202,7 @@ private fun GrantStepsContent(context: Context, granted: Boolean, onFinish: () -
         body = "${devOptionsPathHint()} → \"Select mock location app\" → choose DJProxy.",
         done = granted,
         action = {
-            OutlinedButton(onClick = { openDeveloperSettings(context) }) {
+            DjOutlineButton(onClick = { openDeveloperSettings(context) }, contentColor = DjColors.AccentCyan) {
                 Text(if (granted) "Granted — open again" else "Open Developer options")
             }
         },
@@ -222,18 +210,17 @@ private fun GrantStepsContent(context: Context, granted: Boolean, onFinish: () -
 
     Spacer(Modifier.height(4.dp))
 
-    Button(
+    DjButton(
         onClick = onFinish,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
     ) {
         Text(if (granted) "Done — continue" else "Continue")
     }
-    TextButton(
+    DjOutlineButton(
         onClick = onFinish,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Text("Skip for now", color = DjColors.TextSecondary)
+        Text("Skip for now")
     }
 }
 
@@ -247,8 +234,8 @@ private fun StepCard(
     action: @Composable () -> Unit,
 ) {
     GlassSurface(modifier = Modifier.fillMaxWidth()) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(DjSpacing.md)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DjSpacing.md)) {
                 StepBadge(index = index, done = done)
                 icon()
                 Text(title, style = MaterialTheme.typography.titleMedium, color = DjColors.TextPrimary)

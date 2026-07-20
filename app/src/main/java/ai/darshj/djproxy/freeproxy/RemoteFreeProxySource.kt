@@ -112,6 +112,13 @@ class RemoteFreeProxySource(
         /**
          * Fixed, maintained public lists. TXT (not JSON) endpoints so parsing stays JSON-free and the
          * lane keeps ZERO new dependencies. Priority order = merge/dedupe priority.
+         *
+         * **Host diversity (the Refresh "looks broken" fix):** the list deliberately spans TWO distinct
+         * hosts — `raw.githubusercontent.com` (jetkai + proxifly) AND `api.proxyscrape.com`. A refresh
+         * only fails when *every* source is unreachable, so a single blocked/rate-limited host (a common
+         * cause of a silent, inert grey list) can no longer sink the whole pull: the surviving host still
+         * returns rows. The proxyscrape endpoints use `format=text&proxy_format=ipport`, so their bodies
+         * are the same bare `ip:port` lines [FreeProxyParser] already screens — no JSON, no new dependency.
          */
         val DEFAULT_SOURCES: List<Source> = listOf(
             Source(
@@ -129,6 +136,15 @@ class RemoteFreeProxySource(
             Source(
                 "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/http/data.txt",
                 ProxyType.HTTP, "proxifly · http",
+            ),
+            // Second distinct host so a raw.githubusercontent.com outage/rate-limit can't fail the refresh.
+            Source(
+                "https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=ipport&format=text&protocol=socks5",
+                ProxyType.SOCKS5, "proxyscrape · socks5",
+            ),
+            Source(
+                "https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=ipport&format=text&protocol=http",
+                ProxyType.HTTP, "proxyscrape · http",
             ),
         )
 

@@ -205,4 +205,53 @@ class RemoteFreeProxySourceTest {
         val res = src.fetch(force = true)
         assertTrue(res is FreeProxyResult.Failed)
     }
+
+    // ---- host diversity: one blocked host can't fail the whole refresh (the "Refresh looks broken" fix)
+
+    @Test
+    fun `default sources span at least two distinct hosts incl github and proxyscrape`() {
+        val hosts = RemoteFreeProxySource.DEFAULT_SOURCES.map { java.net.URL(it.url).host }.toSet()
+        assertTrue("must span >= 2 distinct hosts", hosts.size >= 2)
+        assertTrue("must include raw.githubusercontent.com", hosts.contains("raw.githubusercontent.com"))
+        assertTrue("must include api.proxyscrape.com", hosts.contains("api.proxyscrape.com"))
+        // RealFetcher enforces https, but the declared list must already be https-only.
+        assertTrue(
+            "every default source is https",
+            RemoteFreeProxySource.DEFAULT_SOURCES.all { java.net.URL(it.url).protocol == "https" },
+        )
+    }
+
+    @Test
+    fun `github host blocked still yields rows from the alternate host`() = runTest {
+        // Simulate raw.githubusercontent.com being unreachable at the host level: its URLs throw, while
+        // the api.proxyscrape.com host still answers → the refresh must NOT silently degrade to empty.
+        val githubUrls = RemoteFreeProxySource.DEFAULT_SOURCES
+            .map { it.url }
+            .filter { java.net.URL(it).host == "raw.githubusercontent.com" }
+            .toSet()
+        val proxyscrapeSocks = RemoteFreeProxySource.DEFAULT_SOURCES
+            .first { java.net.URL(it.url).host == "api.proxyscrape.com" && it.defaultType == ProxyType.SOCKS5 }
+            .url
+
+        val fetcher = object : RemoteFreeProxySource.BodyFetcher {
+            val fetched = mutableListOf<String>()
+            override suspend fun fetch(url: String, maxBytes: Int): String {
+                fetched += url
+                if (url in githubUrls) throw IOException("host blocked")
+                return if (url == proxyscrapeSocks) "8.8.8.8:1080\n1.1.1.1:8080" else throw IOException("404 $url")
+            }
+        }
+        val src = RemoteFreeProxySource(
+            cache = freshCache(),
+            sources = RemoteFreeProxySource.DEFAULT_SOURCES,
+            fetcher = fetcher,
+            clock = { 5L },
+        )
+        val res = src.fetch(force = true)
+        assertTrue("a surviving host must keep the refresh alive", res is FreeProxyResult.Ok)
+        res as FreeProxyResult.Ok
+        assertFalse(res.fromCache)
+        assertTrue("rows from the alternate host survive the github outage", res.entries.isNotEmpty())
+        assertTrue(res.entries.any { it.host == "8.8.8.8" })
+    }
 }

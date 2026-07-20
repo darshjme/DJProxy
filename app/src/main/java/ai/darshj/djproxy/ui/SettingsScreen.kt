@@ -23,17 +23,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -52,9 +49,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ai.darshj.djproxy.compat.CapabilityDetector
+import ai.darshj.djproxy.ui.components.DjOutlineButton
 import ai.darshj.djproxy.ui.components.GlassSurface
 import ai.darshj.djproxy.ui.components.StepBadge
 import ai.darshj.djproxy.ui.theme.DjColors
+import ai.darshj.djproxy.ui.theme.DjSpacing
 import ai.darshj.djproxy.vpn.FeatureRegistry
 import ai.darshj.djproxy.vpn.VpnState
 import ai.darshj.djproxy.vpn.seams.LocationCapability
@@ -83,7 +82,7 @@ fun SettingsScreen(
 
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(bottom = DjSpacing.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack) {
@@ -93,7 +92,7 @@ fun SettingsScreen(
             Text("Settings", style = MaterialTheme.typography.headlineSmall, color = DjColors.TextPrimary)
         }
 
-        SectionHeader("PROXIES", topPadding = 4.dp)
+        SectionHeader("PROXIES", topPadding = DjSpacing.xs)
         GlassSurface(modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenServers)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -283,7 +282,7 @@ private fun FeaturePanelsHost(locationMatchingEnabled: Boolean) {
         }
         return
     }
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(DjSpacing.lg)) {
         panels.forEach { panel ->
             GlassSurface(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.fillMaxWidth()) {
@@ -298,13 +297,13 @@ private fun FeaturePanelsHost(locationMatchingEnabled: Boolean) {
 
 /** Uppercase section label used to group the Settings host cards into scannable clusters. */
 @Composable
-private fun SectionHeader(text: String, topPadding: androidx.compose.ui.unit.Dp = 12.dp) {
+private fun SectionHeader(text: String, topPadding: androidx.compose.ui.unit.Dp = DjSpacing.md) {
     Text(
         text = text,
         style = MaterialTheme.typography.labelLarge,
         color = DjColors.TextTertiary,
         letterSpacing = 0.8.sp,
-        modifier = Modifier.padding(top = topPadding, bottom = 8.dp),
+        modifier = Modifier.padding(top = topPadding, bottom = DjSpacing.sm),
     )
 }
 
@@ -409,9 +408,9 @@ private fun MockLocationInstructionsCard() {
                         body = "Settings > About phone > tap \"${buildNumberFieldLabel()}\" 7 times in a row " +
                             "until you see \"You are now a developer\".",
                     )
-                    OutlinedButton(
+                    DjOutlineButton(
                         onClick = { openSettingsIntent(Settings.ACTION_DEVICE_INFO_SETTINGS, context) },
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = DjColors.AccentCyan),
+                        contentColor = DjColors.AccentCyan,
                         modifier = Modifier.padding(start = 34.dp, top = 4.dp, bottom = 14.dp),
                     ) {
                         Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -426,9 +425,9 @@ private fun MockLocationInstructionsCard() {
                             "Steps vary a little by manufacturer (Samsung/Xiaomi/stock Android/emulator) — the " +
                             "path above is the one detected for this device.",
                     )
-                    OutlinedButton(
+                    DjOutlineButton(
                         onClick = { openSettingsIntent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS, context) },
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = DjColors.AccentCyan),
+                        contentColor = DjColors.AccentCyan,
                         modifier = Modifier.padding(start = 34.dp, top = 4.dp),
                     ) {
                         Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))

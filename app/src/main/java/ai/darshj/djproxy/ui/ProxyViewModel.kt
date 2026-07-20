@@ -55,6 +55,22 @@ data class ProxyUiState(
 )
 
 /**
+ * v6 servers-tab: the explicit outcome of the last free-list Refresh (or cache-load), so the Free tab
+ * can render a real loading → count+timestamp → inline-error progression instead of a single silent
+ * amber note. [Success.fetchedAt] is threaded straight out of [FreeProxyResult.Ok.fetchedAt] so the UI
+ * can show "Updated · N servers · <relative time>"; [Success.fromCache] distinguishes a fresh pull from
+ * a served-stale fallback; [Error] carries the honest failure reason for the inline error card. [Idle]
+ * is the pre-wiring / never-refreshed default (the UI falls back to the legacy note in that state).
+ */
+sealed interface FreeRefreshState {
+    data object Idle : FreeRefreshState
+    data object Loading : FreeRefreshState
+    data class Success(val count: Int, val fetchedAt: Long, val fromCache: Boolean) : FreeRefreshState
+    data object Empty : FreeRefreshState
+    data class Error(val reason: String) : FreeRefreshState
+}
+
+/**
  * A parsed single-config import waiting for the user's one confirmation tap (§11 security seam).
  * Deep-link / share-target / .ovpn opens NEVER auto-connect silently — they raise the Import sheet
  * with this preview and the user taps Connect. [autoConnect] only pre-emphasises the Connect action
@@ -177,6 +193,20 @@ class ProxyViewModel : ViewModel() {
 
     /** A short honest note on the last free-list fetch ("Showing cached list" / a failure reason), or null. */
     val freeProxyNote: StateFlow<String?> = _freeProxyNote.asStateFlow()
+
+    private val _freeRefreshState = MutableStateFlow<FreeRefreshState>(FreeRefreshState.Idle)
+
+    /**
+     * The explicit state of the last free-list refresh (loading / success-with-count-and-time / empty /
+     * error). Drives the Free tab's explicit refresh UI so a refresh never silently degrades to an inert
+     * grey list — replaces the single amber [freeProxyNote] as the primary signal.
+     */
+    val freeRefreshState: StateFlow<FreeRefreshState> = _freeRefreshState.asStateFlow()
+
+    private val _freeLastFetchedAt = MutableStateFlow<Long?>(null)
+
+    /** Epoch-millis the free list was last produced/cached (from [FreeProxyResult.Ok.fetchedAt]), or null. */
+    val freeLastFetchedAt: StateFlow<Long?> = _freeLastFetchedAt.asStateFlow()
 
     private val _editing = MutableStateFlow<EditContext?>(null)
 
@@ -342,18 +372,26 @@ class ProxyViewModel : ViewModel() {
         val source = _freeSource.value ?: return
         viewModelScope.launch {
             _freeProxyBusy.value = true
+            _freeRefreshState.value = FreeRefreshState.Loading
             try {
                 when (val result = source.fetch(force)) {
                     is FreeProxyResult.Ok -> {
                         _freeProxies.value = result.entries
+                        _freeLastFetchedAt.value = result.fetchedAt
                         _freeProxyNote.value = if (result.fromCache) {
                             "Showing the last cached list — couldn't refresh right now."
                         } else {
                             null
                         }
+                        _freeRefreshState.value = if (result.entries.isEmpty()) {
+                            FreeRefreshState.Empty
+                        } else {
+                            FreeRefreshState.Success(result.entries.size, result.fetchedAt, result.fromCache)
+                        }
                     }
                     is FreeProxyResult.Failed -> {
                         _freeProxyNote.value = result.reason
+                        _freeRefreshState.value = FreeRefreshState.Error(result.reason)
                     }
                 }
             } finally {
@@ -372,7 +410,15 @@ class ProxyViewModel : ViewModel() {
         if (_freeProxies.value.isNotEmpty()) return
         viewModelScope.launch {
             val cached = source.fetchCachedOnly() ?: return@launch
-            if (_freeProxies.value.isEmpty()) _freeProxies.value = cached.entries
+            if (_freeProxies.value.isEmpty()) {
+                _freeProxies.value = cached.entries
+                _freeLastFetchedAt.value = cached.fetchedAt
+                _freeRefreshState.value = if (cached.entries.isEmpty()) {
+                    FreeRefreshState.Empty
+                } else {
+                    FreeRefreshState.Success(cached.entries.size, cached.fetchedAt, fromCache = true)
+                }
+            }
         }
     }
 
@@ -677,5 +723,62 @@ class ProxyViewModel : ViewModel() {
             ),
         )
         LogBus.i("UI", "User requested a diagnostic report for: ${error.message}")
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // --- adblock mode (DESIGN_V6 §Block-ads) ---
+    // Additive lane wiring, exactly mirroring the Tor section's "read the lane's own Gateway holder"
+    // pattern (core's FeatureRegistry may not gain an adblockController slot). The single source of
+    // truth is AdblockController.enabled (a StateFlow), so the toggle chip + settings switch stay in
+    // sync with the CONNECT-time predicate with zero extra state here. The lane's Registrar runs at
+    // process start (androidx.startup) before this ViewModel exists, so the controller is present;
+    // the empty-flow fallback keeps a lane-absent build honest (the chip is hidden by the ui anyway).
+    // ---------------------------------------------------------------------------------------------
+
+    /** Reflects [ai.darshj.djproxy.adblock.AdblockController.enabled]; false when the lane is absent. */
+    val blockAdsMode: StateFlow<Boolean> =
+        ai.darshj.djproxy.adblock.AdblockGateway.controller?.enabled
+            ?: MutableStateFlow(false).asStateFlow()
+
+    /** Toggle ad/tracker sinkholing. Instant (a volatile write + StateFlow emit); no tunnel re-plumb. */
+    fun setAdBlockMode(on: Boolean) {
+        ai.darshj.djproxy.adblock.AdblockGateway.controller?.setEnabled(on)
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // --- vpngate (DESIGN_V6 §VPN-Gate) ---
+    // The vpngate lane is an honest OpenVPN-server BROWSER, not a tunnel. Its catalog + refresh state
+    // live in the single VpnGateController the lane's Registrar publishes to VpnGateGateway; the ui
+    // reads that Gateway directly for the list/refresh-state (like Tor's bootstrap flow), and only the
+    // two mutating actions funnel back through here so they reuse the EXISTING apply/store seams:
+    //   - [useVpnGate]  routes the RARE directly-dialable row through applyDialable -> the same
+    //                   [reuseConfig]/[VpnController.apply] path every other source uses, and
+    //   - [saveVpnGate] persists that row's dial config with FREE_PUBLIC provenance.
+    // Export/Share of the .ovpn is a pure ui-side controller.shareOvpn(context, ..) call (needs a
+    // Context this ViewModel deliberately does not hold), so it is not mirrored here.
+    // ---------------------------------------------------------------------------------------------
+
+    private var vpnGateController: ai.darshj.djproxy.vpngate.VpnGateController? = null
+
+    /** Bind to the single controller the VpnGateRegistrar published. Called once by the host activity. */
+    fun attachVpnGate() {
+        vpnGateController = ai.darshj.djproxy.vpngate.VpnGateGateway.controller
+    }
+
+    /** Dial the rare directly-dialable VPN Gate row through the existing apply path (no-op otherwise). */
+    fun useVpnGate(server: ai.darshj.djproxy.vpngate.VpnGateServer) {
+        val ctl = vpnGateController ?: ai.darshj.djproxy.vpngate.VpnGateGateway.controller ?: return
+        viewModelScope.launch {
+            ctl.applyDialable(server) { config -> reuseConfig(config) }
+        }
+    }
+
+    /** Persist a directly-dialable VPN Gate row into the vault, keeping FREE_PUBLIC provenance. */
+    fun saveVpnGate(server: ai.darshj.djproxy.vpngate.VpnGateServer) {
+        val store = _store.value ?: return
+        val config = server.dialConfig ?: return
+        viewModelScope.launch {
+            store.save(server.hostName, config, ProxyOrigin.FREE_PUBLIC)
+        }
     }
 }

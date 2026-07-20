@@ -1,0 +1,182 @@
+# DJProxy adblock — curated domain-only blocklist
+#
+# A CONSERVATIVE subset distilled from the StevenBlack unified-hosts project
+# (https://github.com/StevenBlack/hosts — MIT), reduced to bare ad/tracker
+# DOMAINS only (no `0.0.0.0` prefix, no IPs, no localhost redirects). Kept small
+# on purpose: this rides the hot CONNECT path, and an over-broad list would
+# false-positive-block first-party CDNs. Parent-suffix matching in Blocklist.kt
+# means one entry (e.g. `doubleclick.net`) also covers every sub-domain
+# (`ad.doubleclick.net`, `stats.g.doubleclick.net`, …), so we list registrable
+# domains, not every host.
+#
+# Format: one domain per line, lowercase. `#` starts a comment (whole-line or
+# trailing). `0.0.0.0 domain` / `127.0.0.1 domain` hosts-file lines are also
+# accepted and normalized. Blank lines ignored.
+
+# --- Google / DoubleClick advertising & measurement ---
+doubleclick.net
+googleadservices.com
+googlesyndication.com
+google-analytics.com
+googletagmanager.com
+googletagservices.com
+adservice.google.com
+pagead2.googlesyndication.com
+partner.googleadservices.com
+pubads.g.doubleclick.net
+securepubads.g.doubleclick.net
+www.googletagmanager.com
+analytics.google.com
+region1.google-analytics.com
+ssl.google-analytics.com
+adsense.google.com
+2mdn.net
+app-measurement.com
+
+# --- Facebook / Meta tracking ---
+connect.facebook.net
+graph.facebook.com
+an.facebook.com
+pixel.facebook.com
+analytics.facebook.com
+
+# --- Amazon advertising ---
+amazon-adsystem.com
+aax.amazon-adsystem.com
+c.amazon-adsystem.com
+s.amazon-adsystem.com
+
+# --- Programmatic exchanges / SSPs / DSPs ---
+adnxs.com
+adsrvr.org
+rubiconproject.com
+pubmatic.com
+openx.net
+casalemedia.com
+criteo.com
+criteo.net
+taboola.com
+outbrain.com
+smartadserver.com
+gumgum.com
+sharethrough.com
+33across.com
+bidswitch.net
+360yield.com
+adform.net
+adroll.com
+media.net
+contextweb.com
+lijit.com
+sonobi.com
+spotxchange.com
+teads.tv
+yieldmo.com
+districtm.io
+indexww.com
+gammaplatform.com
+bidr.io
+mathtag.com
+serving-sys.com
+adtechus.com
+advertising.com
+moatads.com
+scorecardresearch.com
+zedo.com
+adcolony.com
+applovin.com
+inmobi.com
+mopub.com
+unityads.unity3d.com
+chartboost.com
+vungle.com
+tapjoy.com
+supersonicads.com
+adtapsy.com
+startappservice.com
+startappexchange.com
+
+# --- Analytics / attribution / session-replay ---
+mixpanel.com
+segment.com
+segment.io
+amplitude.com
+fullstory.com
+hotjar.com
+mouseflow.com
+crazyegg.com
+quantserve.com
+quantcount.com
+chartbeat.com
+chartbeat.net
+newrelic.com
+nr-data.net
+bugsnag.com
+sentry.io
+branch.io
+adjust.com
+appsflyer.com
+kochava.com
+singular.net
+tenjin.io
+statcounter.com
+histats.com
+clicky.com
+matomo.cloud
+heap.io
+heapanalytics.com
+inspectlet.com
+loggly.com
+optimizely.com
+omtrdc.net
+demdex.net
+everesttech.net
+adobedtm.com
+2o7.net
+sc.omtrdc.net
+
+# --- Ad networks / misc ad servers ---
+adservice.google.co.in
+adsafeprotected.com
+doubleverify.com
+flashtalking.com
+bluekai.com
+krxd.net
+rlcdn.com
+agkn.com
+tapad.com
+crwdcntrl.net
+exelator.com
+turn.com
+mookie1.com
+addthis.com
+sharethis.com
+po.st
+zqtk.net
+pixel.quantserve.com
+ml314.com
+undertone.com
+yieldlab.net
+smaato.net
+mobfox.com
+airpush.com
+leadbolt.com
+revmob.com
+adtilt.com
+inner-active.mobi
+mobclix.com
+millennialmedia.com
+jumptap.com
+
+# --- Trackers baked into content / social widgets ---
+bat.bing.com
+ads.linkedin.com
+px.ads.linkedin.com
+analytics.tiktok.com
+ads.tiktok.com
+business-api.tiktok.com
+ads-api.twitter.com
+ads.yahoo.com
+analytics.yahoo.com
+adserver.yahoo.com
+b.scorecardresearch.com

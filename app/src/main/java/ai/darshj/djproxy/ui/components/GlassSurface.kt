@@ -15,17 +15,23 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import ai.darshj.djproxy.ui.theme.DjColors
+import ai.darshj.djproxy.ui.theme.DjShapes
 
 /**
  * A frosted-glass card: a translucent gradient fill over a diagonal hairline border, sitting on
  * a soft shadow. No real backdrop blur is available (no extra render dependency in this module),
  * so the "frosted" read comes from layered alpha + a light-catch gradient border instead — this
  * is the honest, dependency-free approximation of glassmorphism on stock Compose.
+ *
+ * Default corner radius is [DjShapes.Card] (16dp) — the shared shape-token scale, not a bare
+ * literal. The hero call sites that want the larger 28dp treatment ([DjShapes.Hero]) pass it
+ * explicitly (e.g. the validation-error card, sheets) exactly as before; this only changes the
+ * *default* every other `GlassSurface { }` call inherits.
  */
 @Composable
 fun GlassSurface(
     modifier: Modifier = Modifier,
-    cornerRadius: Dp = 28.dp,
+    cornerRadius: Dp = DjShapes.CardRadius,
     borderBrush: Brush = Brush.linearGradient(
         listOf(DjColors.GlassBorderTop, DjColors.GlassBorderBottom),
     ),

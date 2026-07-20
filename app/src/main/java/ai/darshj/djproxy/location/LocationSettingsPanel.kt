@@ -29,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
+import ai.darshj.djproxy.ui.devOptionsPathHint
 import ai.darshj.djproxy.vpn.seams.LocationCapability
 import ai.darshj.djproxy.vpn.seams.SettingsPanel
 import kotlinx.coroutines.launch
@@ -80,7 +81,10 @@ class LocationSettingsPanel(
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "In Developer options → \"Select mock location app\", pick DJProxy, then tap Re-check.",
+                    // OEM-accurate path (Samsung/Xiaomi bury Developer options differently) from the
+                    // shared DevOptionsGuidance SSOT, so this copy never disagrees with onboarding.
+                    text = "${devOptionsPathHint()} There, under \"Select mock location app\", pick " +
+                        "DJProxy, then tap Re-check.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

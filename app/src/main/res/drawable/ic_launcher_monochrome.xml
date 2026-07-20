@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   DJProxy themed/monochrome icon (Android 13+ "Material You" adaptive theming).
-  Single-color silhouette of the shield + tunnel-ring motif; the system tints this at runtime,
-  so it is drawn flat opaque white per platform convention.
+  Single-color silhouette of the "DJ" monogram over the shield + tunnel-ring motif (same
+  letterform geometry as ic_launcher_foreground.xml); the system tints this at runtime, so it is
+  drawn flat opaque white per platform convention — no gradients, no per-path alpha tricks that
+  would read as color.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -15,24 +17,36 @@
         android:fillColor="#FFFFFFFF" />
 
     <path
-        android:pathData="M34,53 A20,20 0 1,0 74,53 A20,20 0 1,0 34,53 Z"
+        android:pathData="M38,54 A16,16 0 1,0 70,54 A16,16 0 1,0 38,54 Z"
         android:fillColor="#00000000"
         android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="2.4"
+        android:strokeWidth="2"
         android:strokeAlpha="0.55" />
     <path
-        android:pathData="M39,53 A15,15 0 1,0 69,53 A15,15 0 1,0 39,53 Z"
+        android:pathData="M43,54 A11,11 0 1,0 65,54 A11,11 0 1,0 43,54 Z"
         android:fillColor="#00000000"
         android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="2.4"
+        android:strokeWidth="2"
         android:strokeAlpha="0.8" />
+
+    <!-- "DJ" monogram — same skeleton paths as the foreground layer, single flat stroke (no
+         outline pass needed: the monochrome silhouette is one opaque color by definition). -->
     <path
-        android:pathData="M44,53 A10,10 0 1,0 64,53 A10,10 0 1,0 44,53 Z"
+        android:pathData="M28,37 L28,71 M28,37 L41,37 A13,17 0 0 1 41,71 L28,71"
         android:fillColor="#00000000"
         android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="2.6" />
+        android:strokeWidth="9"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M68,37 L68,60 A10,10 0 0 1 58,70"
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="9"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
 
     <path
-        android:pathData="M50,53 A4,4 0 1,0 58,53 A4,4 0 1,0 50,53 Z"
+        android:pathData="M67,27 A3,3 0 1,0 73,27 A3,3 0 1,0 67,27 Z"
         android:fillColor="#FFFFFFFF" />
 </vector>

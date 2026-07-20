@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  DJProxy adaptive icon — foreground layer.
-  Concept: a faceted shield housing a receding tunnel of rings that converge to one bright
-  point — "everything routed, nothing escapes." All geometry sits inside the 66dp adaptive-icon
-  safe zone (centered box from 21,21 to 87,87 on this 108x108 viewport).
+  DJProxy adaptive icon — foreground layer (v5: literal DJ monogram fused with the shield-tunnel
+  motif). The faceted shield + receding tunnel rings from v4 stay as the backdrop, now carrying a
+  bold "DJ" monogram on top so the mark reads instantly at launcher size, not just as an abstract
+  tunnel. All geometry sits inside the 66dp adaptive-icon safe zone (centered box from 21,21 to
+  87,87 on this 108x108 viewport); letterform strokes (incl. their contrast outline) stay clear of
+  the 21..87 edges.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
@@ -12,8 +14,8 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- outer shield facet — v4 tri-tone diagonal sweep: cyan -> violet -> indigo,
-         matching the DJProxy v4 brand ring's three-stop DjBrandTriBrush -->
+    <!-- outer shield facet — tri-tone diagonal sweep: cyan -> violet -> indigo,
+         matching the DjBrandTriBrush used app-wide -->
     <path android:pathData="M54,23 L80,32 L80,60 L54,86 L28,60 L28,32 Z">
         <aapt:attr name="android:fillColor">
             <gradient
@@ -36,34 +38,71 @@
         android:strokeWidth="2"
         android:strokeAlpha="0.35" />
 
-    <!-- receding tunnel rings, brightening toward the vanishing point -->
+    <!-- receding tunnel rings behind the monogram — trimmed to two (was three) so they read as a
+         quiet depth cue instead of competing with the bold letterforms drawn on top -->
     <path
-        android:pathData="M34,53 A20,20 0 1,0 74,53 A20,20 0 1,0 34,53 Z"
+        android:pathData="M38,54 A16,16 0 1,0 70,54 A16,16 0 1,0 38,54 Z"
         android:fillColor="#00000000"
         android:strokeColor="#0B1220"
-        android:strokeWidth="2.4"
-        android:strokeAlpha="0.55" />
+        android:strokeWidth="2"
+        android:strokeAlpha="0.30" />
     <path
-        android:pathData="M39,53 A15,15 0 1,0 69,53 A15,15 0 1,0 39,53 Z"
+        android:pathData="M43,54 A11,11 0 1,0 65,54 A11,11 0 1,0 43,54 Z"
         android:fillColor="#00000000"
         android:strokeColor="#EAFCFF"
-        android:strokeWidth="2.4"
-        android:strokeAlpha="0.75" />
-    <path
-        android:pathData="M44,53 A10,10 0 1,0 64,53 A10,10 0 1,0 44,53 Z"
-        android:fillColor="#00000000"
-        android:strokeColor="#EAFCFF"
-        android:strokeWidth="2.6"
-        android:strokeAlpha="0.92" />
+        android:strokeWidth="2"
+        android:strokeAlpha="0.45" />
 
-    <!-- the vanishing point: the one secure destination everything is routed to -->
-    <path android:pathData="M50,53 A4,4 0 1,0 58,53 A4,4 0 1,0 50,53 Z">
+    <!-- "DJ" monogram — drawn as bold stroked skeletons (round caps/joins), the same technique
+         used for the tunnel rings above, so it reads as one coherent icon language. Each letter
+         gets a dark contrast outline underneath (wider, low-alpha navy) then a crisp light stroke
+         on top, so the glyph stays legible against every stop of the shield gradient. -->
+
+    <!-- D — outline pass -->
+    <path
+        android:pathData="M28,37 L28,71 M28,37 L41,37 A13,17 0 0 1 41,71 L28,71"
+        android:fillColor="#00000000"
+        android:strokeColor="#0B1220"
+        android:strokeWidth="11"
+        android:strokeAlpha="0.32"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <!-- D — crisp letter pass -->
+    <path
+        android:pathData="M28,37 L28,71 M28,37 L41,37 A13,17 0 0 1 41,71 L28,71"
+        android:fillColor="#00000000"
+        android:strokeColor="#F5FBFF"
+        android:strokeWidth="8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- J — outline pass -->
+    <path
+        android:pathData="M68,37 L68,60 A10,10 0 0 1 58,70"
+        android:fillColor="#00000000"
+        android:strokeColor="#0B1220"
+        android:strokeWidth="11"
+        android:strokeAlpha="0.32"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <!-- J — crisp letter pass -->
+    <path
+        android:pathData="M68,37 L68,60 A10,10 0 0 1 58,70"
+        android:fillColor="#00000000"
+        android:strokeColor="#F5FBFF"
+        android:strokeWidth="8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- the vanishing point: the tunnel's bright destination, now doubling as the "signal ping"
+         above the J — the one secure destination everything is routed to -->
+    <path android:pathData="M67,27 A3,3 0 1,0 73,27 A3,3 0 1,0 67,27 Z">
         <aapt:attr name="android:fillColor">
             <gradient
                 android:type="radial"
-                android:centerX="54"
-                android:centerY="53"
-                android:gradientRadius="4"
+                android:centerX="70"
+                android:centerY="27"
+                android:gradientRadius="3"
                 android:startColor="#FFFFFF"
                 android:endColor="#BEF8FF" />
         </aapt:attr>

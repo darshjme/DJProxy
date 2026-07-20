@@ -35,6 +35,15 @@ object FeatureRegistry {
     @Volatile
     var criticalFailureSink: CriticalFailureSink? = null // set by diagnostics lane
 
+    /**
+     * Adblock seam: returns true = sinkhole a CONNECT to this host. Null (default) = allow all, which
+     * is byte-identical to pre-adblock behaviour. Set by the adblock lane's Registrar; read by the
+     * proxy SOCKS front (the one Kotlin choke point where the ad domain is visible under MapDNS-on).
+     * Same inversion as the controllers above — core never imports the adblock package.
+     */
+    @Volatile
+    var blockedHostPredicate: ((String) -> Boolean)? = null // set by adblock lane
+
     /** Feature lanes contribute settings UI without editing ui/: the ui host renders these. */
     val settingsPanels: MutableList<SettingsPanel> = CopyOnWriteArrayList()
 

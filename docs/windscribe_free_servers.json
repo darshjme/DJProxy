@@ -1,0 +1,682 @@
+[
+  {
+    "dc": "US Central",
+    "cc": "US",
+    "city": "Dallas",
+    "hostname": "dfw-86-wg.whiskergalaxy.com",
+    "ip": "198.44.137.27",
+    "node": "us-central-111.whiskergalaxy.com"
+  },
+  {
+    "dc": "US Central",
+    "cc": "US",
+    "city": "Atlanta",
+    "hostname": "atl-109-wg.whiskergalaxy.com",
+    "ip": "198.44.138.19",
+    "node": "us-central-113.whiskergalaxy.com"
+  },
+  {
+    "dc": "US Central",
+    "cc": "US",
+    "city": "Denver",
+    "hostname": "den-145-wg.whiskergalaxy.com",
+    "ip": "95.173.221.15",
+    "node": "us-central-106.whiskergalaxy.com"
+  },
+  {
+    "dc": "US Central",
+    "cc": "US",
+    "city": "Atlanta",
+    "hostname": "atl-156-wg.whiskergalaxy.com",
+    "ip": "194.0.213.153",
+    "node": "us-central-151.whiskergalaxy.com"
+  },
+  {
+    "dc": "US Central",
+    "cc": "US",
+    "city": "Dallas",
+    "hostname": "dfw-192-wg.whiskergalaxy.com",
+    "ip": "2.56.188.244",
+    "node": "us-central-162.whiskergalaxy.com"
+  },
+  {
+    "dc": "US Central",
+    "cc": "US",
+    "city": "Atlanta",
+    "hostname": "atl-331-wg.whiskergalaxy.com",
+    "ip": "154.47.28.129",
+    "node": "us-central-107.whiskergalaxy.com"
+  },
+  {
+    "dc": "US Central",
+    "cc": "US",
+    "city": "Kansas City",
+    "hostname": "mci-371-wg.whiskergalaxy.com",
+    "ip": "74.80.181.131",
+    "node": "us-central-097.whiskergalaxy.com"
+  },
+  {
+    "dc": "US Central",
+    "cc": "US",
+    "city": "Dallas",
+    "hostname": "dfw-414-wg.whiskergalaxy.com",
+    "ip": "84.20.18.46",
+    "node": "us-central-121.whiskergalaxy.com"
+  },
+  {
+    "dc": "US Central",
+    "cc": "US",
+    "city": "Houston",
+    "hostname": "iah-424-wg.whiskergalaxy.com",
+    "ip": "149.40.56.130",
+    "node": "us-central-108.whiskergalaxy.com"
+  },
+  {
+    "dc": "US Central",
+    "cc": "US",
+    "city": "Kansas City",
+    "hostname": "mci-444-wg.whiskergalaxy.com",
+    "ip": "198.44.141.27",
+    "node": "us-central-119.whiskergalaxy.com"
+  },
+  {
+    "dc": "US Central",
+    "cc": "US",
+    "city": "Denver",
+    "hostname": "den-452-wg.whiskergalaxy.com",
+    "ip": "198.54.128.195",
+    "node": "us-central-128.whiskergalaxy.com"
+  },
+  {
+    "dc": "US East",
+    "cc": "US",
+    "city": "Chicago",
+    "hostname": "ord-63-wg.whiskergalaxy.com",
+    "ip": "68.235.56.51",
+    "node": "us-east-133.whiskergalaxy.com"
+  },
+  {
+    "dc": "US East",
+    "cc": "US",
+    "city": "New York",
+    "hostname": "jfk-106-wg.whiskergalaxy.com",
+    "ip": "135.136.3.2",
+    "node": "us-east-157.whiskergalaxy.com"
+  },
+  {
+    "dc": "US East",
+    "cc": "US",
+    "city": "Miami",
+    "hostname": "mia-140-wg.whiskergalaxy.com",
+    "ip": "135.136.5.34",
+    "node": "us-east-154.whiskergalaxy.com"
+  },
+  {
+    "dc": "US East",
+    "cc": "US",
+    "city": "Cleveland",
+    "hostname": "cle-146-wg.whiskergalaxy.com",
+    "ip": "67.214.181.50",
+    "node": "us-east-175.whiskergalaxy.com"
+  },
+  {
+    "dc": "US East",
+    "cc": "US",
+    "city": "New Jersey",
+    "hostname": "ewr-181-wg.whiskergalaxy.com",
+    "ip": "194.59.251.146",
+    "node": "us-east-149.whiskergalaxy.com"
+  },
+  {
+    "dc": "US East",
+    "cc": "US",
+    "city": "Miami",
+    "hostname": "mia-206-wg.whiskergalaxy.com",
+    "ip": "23.82.138.29",
+    "node": "us-east-186.whiskergalaxy.com"
+  },
+  {
+    "dc": "US East",
+    "cc": "US",
+    "city": "Buffalo",
+    "hostname": "buf-281-wg.whiskergalaxy.com",
+    "ip": "172.245.13.130",
+    "node": "us-east-174.whiskergalaxy.com"
+  },
+  {
+    "dc": "US East",
+    "cc": "US",
+    "city": "Boston",
+    "hostname": "bos-298-wg.whiskergalaxy.com",
+    "ip": "192.34.83.226",
+    "node": "us-east-123.whiskergalaxy.com"
+  },
+  {
+    "dc": "US East",
+    "cc": "US",
+    "city": "Charlotte",
+    "hostname": "clt-303-wg.whiskergalaxy.com",
+    "ip": "104.249.59.229",
+    "node": "us-east-161.whiskergalaxy.com"
+  },
+  {
+    "dc": "US East",
+    "cc": "US",
+    "city": "Chicago",
+    "hostname": "ord-323-wg.whiskergalaxy.com",
+    "ip": "154.47.25.65",
+    "node": "us-east-128.whiskergalaxy.com"
+  },
+  {
+    "dc": "US East",
+    "cc": "US",
+    "city": "Washington DC",
+    "hostname": "was-324-wg.whiskergalaxy.com",
+    "ip": "149.102.227.65",
+    "node": "us-east-132.whiskergalaxy.com"
+  },
+  {
+    "dc": "US East",
+    "cc": "US",
+    "city": "Miami",
+    "hostname": "mia-326-wg.whiskergalaxy.com",
+    "ip": "84.233.159.193",
+    "node": "us-east-181.whiskergalaxy.com"
+  },
+  {
+    "dc": "US East",
+    "cc": "US",
+    "city": "New York",
+    "hostname": "jfk-330-wg.whiskergalaxy.com",
+    "ip": "198.44.159.27",
+    "node": "us-east-141.whiskergalaxy.com"
+  },
+  {
+    "dc": "US East",
+    "cc": "US",
+    "city": "Orlando",
+    "hostname": "mco-336-wg.whiskergalaxy.com",
+    "ip": "66.115.182.130",
+    "node": "us-east-082.whiskergalaxy.com"
+  },
+  {
+    "dc": "US East",
+    "cc": "US",
+    "city": "Philadelphia",
+    "hostname": "phl-348-wg.whiskergalaxy.com",
+    "ip": "23.148.145.199",
+    "node": "us-east-136.whiskergalaxy.com"
+  },
+  {
+    "dc": "US East",
+    "cc": "US",
+    "city": "Tampa",
+    "hostname": "tpa-349-wg.whiskergalaxy.com",
+    "ip": "38.95.13.130",
+    "node": "us-east-110.whiskergalaxy.com"
+  },
+  {
+    "dc": "US East",
+    "cc": "US",
+    "city": "Detroit",
+    "hostname": "dtw-368-wg.whiskergalaxy.com",
+    "ip": "104.244.210.242",
+    "node": "us-east-098.whiskergalaxy.com"
+  },
+  {
+    "dc": "US East",
+    "cc": "US",
+    "city": "New York",
+    "hostname": "jfk-384-wg.whiskergalaxy.com",
+    "ip": "149.88.21.140",
+    "node": "us-east-135.whiskergalaxy.com"
+  },
+  {
+    "dc": "US East",
+    "cc": "US",
+    "city": "South Bend",
+    "hostname": "sbn-388-wg.whiskergalaxy.com",
+    "ip": "23.189.168.162",
+    "node": "us-east-115.whiskergalaxy.com"
+  },
+  {
+    "dc": "US East",
+    "cc": "US",
+    "city": "Boston",
+    "hostname": "bos-408-wg.whiskergalaxy.com",
+    "ip": "62.93.176.78",
+    "node": "us-east-144.whiskergalaxy.com"
+  },
+  {
+    "dc": "US East",
+    "cc": "US",
+    "city": "Philadelphia",
+    "hostname": "phl-413-wg.whiskergalaxy.com",
+    "ip": "23.148.146.179",
+    "node": "us-east-122.whiskergalaxy.com"
+  },
+  {
+    "dc": "US East",
+    "cc": "US",
+    "city": "Ashburn",
+    "hostname": "iad-459-wg.whiskergalaxy.com",
+    "ip": "198.44.135.27",
+    "node": "us-east-191.whiskergalaxy.com"
+  },
+  {
+    "dc": "US East",
+    "cc": "US",
+    "city": "Raleigh",
+    "hostname": "rdu-460-wg.whiskergalaxy.com",
+    "ip": "198.54.130.243",
+    "node": "us-east-152.whiskergalaxy.com"
+  },
+  {
+    "dc": "US East",
+    "cc": "US",
+    "city": "Tampa",
+    "hostname": "tpa-468-wg.whiskergalaxy.com",
+    "ip": "38.57.2.162",
+    "node": "us-east-180.whiskergalaxy.com"
+  },
+  {
+    "dc": "US East",
+    "cc": "US",
+    "city": "Chicago",
+    "hostname": "ord-472-wg.whiskergalaxy.com",
+    "ip": "193.239.236.134",
+    "node": "us-east-179.whiskergalaxy.com"
+  },
+  {
+    "dc": "US West",
+    "cc": "US",
+    "city": "Los Angeles",
+    "hostname": "lax-107-wg.whiskergalaxy.com",
+    "ip": "38.95.111.194",
+    "node": "us-west-092.whiskergalaxy.com"
+  },
+  {
+    "dc": "US West",
+    "cc": "US",
+    "city": "Seattle",
+    "hostname": "sea-182-wg.whiskergalaxy.com",
+    "ip": "149.22.88.65",
+    "node": "us-west-077.whiskergalaxy.com"
+  },
+  {
+    "dc": "US West",
+    "cc": "US",
+    "city": "Las Vegas",
+    "hostname": "las-183-wg.whiskergalaxy.com",
+    "ip": "37.120.147.146",
+    "node": "us-west-075.whiskergalaxy.com"
+  },
+  {
+    "dc": "US West",
+    "cc": "US",
+    "city": "Seattle",
+    "hostname": "sea-221-wg.whiskergalaxy.com",
+    "ip": "104.168.83.114",
+    "node": "us-west-099.whiskergalaxy.com"
+  },
+  {
+    "dc": "US West",
+    "cc": "US",
+    "city": "Seattle",
+    "hostname": "sea-290-wg.whiskergalaxy.com",
+    "ip": "198.54.131.219",
+    "node": "us-west-083.whiskergalaxy.com"
+  },
+  {
+    "dc": "US West",
+    "cc": "US",
+    "city": "Bend",
+    "hostname": "pdx-302-wg.whiskergalaxy.com",
+    "ip": "198.37.119.81",
+    "node": "us-west-097.whiskergalaxy.com"
+  },
+  {
+    "dc": "US West",
+    "cc": "US",
+    "city": "Los Angeles",
+    "hostname": "lax-310-wg.whiskergalaxy.com",
+    "ip": "185.152.67.225",
+    "node": "us-west-069.whiskergalaxy.com"
+  },
+  {
+    "dc": "US West",
+    "cc": "US",
+    "city": "Los Angeles",
+    "hostname": "lax-321-wg.whiskergalaxy.com",
+    "ip": "198.54.129.67",
+    "node": "us-west-085.whiskergalaxy.com"
+  },
+  {
+    "dc": "US West",
+    "cc": "US",
+    "city": "Phoenix",
+    "hostname": "phx-325-wg.whiskergalaxy.com",
+    "ip": "198.54.133.235",
+    "node": "us-west-081.whiskergalaxy.com"
+  },
+  {
+    "dc": "US West",
+    "cc": "US",
+    "city": "San Francisco",
+    "hostname": "sfo-329-wg.whiskergalaxy.com",
+    "ip": "192.197.201.162",
+    "node": "us-west-091.whiskergalaxy.com"
+  },
+  {
+    "dc": "US West",
+    "cc": "US",
+    "city": "Santa Clara",
+    "hostname": "sjc-333-wg.whiskergalaxy.com",
+    "ip": "167.88.60.242",
+    "node": "us-west-051.whiskergalaxy.com"
+  },
+  {
+    "dc": "US West",
+    "cc": "US",
+    "city": "San Jose",
+    "hostname": "sjc-337-wg.whiskergalaxy.com",
+    "ip": "149.50.212.193",
+    "node": "us-west-079.whiskergalaxy.com"
+  },
+  {
+    "dc": "US West",
+    "cc": "US",
+    "city": "Salt Lake City",
+    "hostname": "slc-442-wg.whiskergalaxy.com",
+    "ip": "198.44.139.43",
+    "node": "us-west-087.whiskergalaxy.com"
+  },
+  {
+    "dc": "US West",
+    "cc": "US",
+    "city": "Honolulu",
+    "hostname": "hnl-445-wg.whiskergalaxy.com",
+    "ip": "107.6.254.50",
+    "node": "us-west-088.whiskergalaxy.com"
+  },
+  {
+    "dc": "Canada East",
+    "cc": "CA",
+    "city": "Toronto",
+    "hostname": "yyz-72-wg.whiskergalaxy.com",
+    "ip": "198.44.157.27",
+    "node": "ca-025.whiskergalaxy.com"
+  },
+  {
+    "dc": "Canada East",
+    "cc": "CA",
+    "city": "Toronto",
+    "hostname": "yyz-197-wg.whiskergalaxy.com",
+    "ip": "149.88.98.65",
+    "node": "ca-056.whiskergalaxy.com"
+  },
+  {
+    "dc": "Canada East",
+    "cc": "CA",
+    "city": "Montreal",
+    "hostname": "yul-316-wg.whiskergalaxy.com",
+    "ip": "84.20.16.110",
+    "node": "ca-062.whiskergalaxy.com"
+  },
+  {
+    "dc": "Canada East",
+    "cc": "CA",
+    "city": "Montreal",
+    "hostname": "yul-359-wg.whiskergalaxy.com",
+    "ip": "198.44.142.35",
+    "node": "ca-064.whiskergalaxy.com"
+  },
+  {
+    "dc": "Canada East",
+    "cc": "CA",
+    "city": "Halifax",
+    "hostname": "yhz-386-wg.whiskergalaxy.com",
+    "ip": "23.191.80.98",
+    "node": "ca-048.whiskergalaxy.com"
+  },
+  {
+    "dc": "Canada West",
+    "cc": "CA",
+    "city": "Vancouver",
+    "hostname": "yvr-124-wg.whiskergalaxy.com",
+    "ip": "167.88.50.34",
+    "node": "ca-west-022.whiskergalaxy.com"
+  },
+  {
+    "dc": "Canada West",
+    "cc": "CA",
+    "city": "Vancouver",
+    "hostname": "yvr-311-wg.whiskergalaxy.com",
+    "ip": "84.20.25.142",
+    "node": "ca-west-027.whiskergalaxy.com"
+  },
+  {
+    "dc": "Canada West",
+    "cc": "CA",
+    "city": "Calgary",
+    "hostname": "yyc-439-wg.whiskergalaxy.com",
+    "ip": "23.133.64.162",
+    "node": "ca-west-024.whiskergalaxy.com"
+  },
+  {
+    "dc": "Canada West",
+    "cc": "CA",
+    "city": "Winnipeg",
+    "hostname": "ywg-465-wg.whiskergalaxy.com",
+    "ip": "23.154.80.66",
+    "node": "ca-west-025.whiskergalaxy.com"
+  },
+  {
+    "dc": "Canada West",
+    "cc": "CA",
+    "city": "Calgary",
+    "hostname": "yyc-470-wg.whiskergalaxy.com",
+    "ip": "109.204.35.65",
+    "node": "ca-west-031.whiskergalaxy.com"
+  },
+  {
+    "dc": "France",
+    "cc": "FR",
+    "city": "Paris",
+    "hostname": "cdg-103-wg.whiskergalaxy.com",
+    "ip": "146.70.253.162",
+    "node": "fr-031.whiskergalaxy.com"
+  },
+  {
+    "dc": "France",
+    "cc": "FR",
+    "city": "Paris",
+    "hostname": "cdg-342-wg.whiskergalaxy.com",
+    "ip": "213.139.9.142",
+    "node": "fr-026.whiskergalaxy.com"
+  },
+  {
+    "dc": "France",
+    "cc": "FR",
+    "city": "Marseille",
+    "hostname": "mrs-411-wg.whiskergalaxy.com",
+    "ip": "149.102.245.65",
+    "node": "fr-024.whiskergalaxy.com"
+  },
+  {
+    "dc": "France",
+    "cc": "FR",
+    "city": "Bordeaux",
+    "hostname": "bod-462-wg.whiskergalaxy.com",
+    "ip": "195.86.24.129",
+    "node": "fr-028.whiskergalaxy.com"
+  },
+  {
+    "dc": "Germany",
+    "cc": "DE",
+    "city": "Frankfurt",
+    "hostname": "fra-113-wg.whiskergalaxy.com",
+    "ip": "135.136.0.2",
+    "node": "de-042.whiskergalaxy.com"
+  },
+  {
+    "dc": "Germany",
+    "cc": "DE",
+    "city": "Frankfurt",
+    "hostname": "fra-228-wg.whiskergalaxy.com",
+    "ip": "149.36.50.1",
+    "node": "de-031.whiskergalaxy.com"
+  },
+  {
+    "dc": "Germany",
+    "cc": "DE",
+    "city": "Berlin",
+    "hostname": "ber-449-wg.whiskergalaxy.com",
+    "ip": "152.233.20.193",
+    "node": "de-035.whiskergalaxy.com"
+  },
+  {
+    "dc": "Netherlands",
+    "cc": "NL",
+    "city": "Amsterdam",
+    "hostname": "ams-120-wg.whiskergalaxy.com",
+    "ip": "185.212.171.130",
+    "node": "nl-048.whiskergalaxy.com"
+  },
+  {
+    "dc": "Netherlands",
+    "cc": "NL",
+    "city": "Amsterdam",
+    "hostname": "ams-193-wg.whiskergalaxy.com",
+    "ip": "149.36.51.173",
+    "node": "nl-044.whiskergalaxy.com"
+  },
+  {
+    "dc": "Netherlands",
+    "cc": "NL",
+    "city": "Amsterdam",
+    "hostname": "ams-466-wg.whiskergalaxy.com",
+    "ip": "161.129.60.34",
+    "node": "nl-051.whiskergalaxy.com"
+  },
+  {
+    "dc": "Norway",
+    "cc": "NO",
+    "city": "Oslo",
+    "hostname": "osl-169-wg.whiskergalaxy.com",
+    "ip": "146.70.170.210",
+    "node": "no-018.whiskergalaxy.com"
+  },
+  {
+    "dc": "Norway",
+    "cc": "NO",
+    "city": "Oslo",
+    "hostname": "osl-433-wg.whiskergalaxy.com",
+    "ip": "79.127.150.97",
+    "node": "no-013.whiskergalaxy.com"
+  },
+  {
+    "dc": "Romania",
+    "cc": "RO",
+    "city": "Bucharest",
+    "hostname": "otp-105-wg.whiskergalaxy.com",
+    "ip": "135.136.1.2",
+    "node": "ro-021.whiskergalaxy.com"
+  },
+  {
+    "dc": "Romania",
+    "cc": "RO",
+    "city": "Bucharest",
+    "hostname": "otp-430-wg.whiskergalaxy.com",
+    "ip": "169.150.199.1",
+    "node": "ro-015.whiskergalaxy.com"
+  },
+  {
+    "dc": "Switzerland",
+    "cc": "CH",
+    "city": "Zurich",
+    "hostname": "zrh-112-wg.whiskergalaxy.com",
+    "ip": "37.120.213.210",
+    "node": "ch-024.whiskergalaxy.com"
+  },
+  {
+    "dc": "Switzerland",
+    "cc": "CH",
+    "city": "Zurich",
+    "hostname": "zrh-264-wg.whiskergalaxy.com",
+    "ip": "31.7.62.50",
+    "node": "ch-019.whiskergalaxy.com"
+  },
+  {
+    "dc": "Switzerland",
+    "cc": "CH",
+    "city": "Zurich",
+    "hostname": "zrh-317-wg.whiskergalaxy.com",
+    "ip": "149.88.27.46",
+    "node": "ch-020.whiskergalaxy.com"
+  },
+  {
+    "dc": "United Kingdom",
+    "cc": "GB",
+    "city": "Manchester",
+    "hostname": "man-126-wg.whiskergalaxy.com",
+    "ip": "37.120.233.50",
+    "node": "uk-046.whiskergalaxy.com"
+  },
+  {
+    "dc": "United Kingdom",
+    "cc": "GB",
+    "city": "London",
+    "hostname": "lhr-171-wg.whiskergalaxy.com",
+    "ip": "37.221.113.162",
+    "node": "uk-051.whiskergalaxy.com"
+  },
+  {
+    "dc": "United Kingdom",
+    "cc": "GB",
+    "city": "London",
+    "hostname": "lhr-335-wg.whiskergalaxy.com",
+    "ip": "185.245.80.153",
+    "node": "uk-054.whiskergalaxy.com"
+  },
+  {
+    "dc": "United Kingdom",
+    "cc": "GB",
+    "city": "London",
+    "hostname": "lhr-341-wg.whiskergalaxy.com",
+    "ip": "212.102.63.31",
+    "node": "uk-021.whiskergalaxy.com"
+  },
+  {
+    "dc": "United Kingdom",
+    "cc": "GB",
+    "city": "Edinburgh",
+    "hostname": "edi-369-wg.whiskergalaxy.com",
+    "ip": "193.36.118.210",
+    "node": "uk-043.whiskergalaxy.com"
+  },
+  {
+    "dc": "United Kingdom",
+    "cc": "GB",
+    "city": "Manchester",
+    "hostname": "man-450-wg.whiskergalaxy.com",
+    "ip": "84.233.178.33",
+    "node": "uk-047.whiskergalaxy.com"
+  },
+  {
+    "dc": "Hong Kong",
+    "cc": "HK",
+    "city": "Hong Kong",
+    "hostname": "hkg-26-wg.whiskergalaxy.com",
+    "ip": "146.70.9.242",
+    "node": "hk-015.whiskergalaxy.com"
+  },
+  {
+    "dc": "Hong Kong",
+    "cc": "HK",
+    "city": "Hong Kong",
+    "hostname": "hkg-189-wg.whiskergalaxy.com",
+    "ip": "84.17.57.113",
+    "node": "hk-006.whiskergalaxy.com"
+  }
+]

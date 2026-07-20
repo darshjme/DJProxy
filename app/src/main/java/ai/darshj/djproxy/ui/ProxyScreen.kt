@@ -34,10 +34,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.material.icons.Icons
@@ -54,6 +51,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -71,7 +69,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ai.darshj.djproxy.tor.TorGateway
 import ai.darshj.djproxy.ui.adaptive.responsiveContentPadding
+import ai.darshj.djproxy.ui.components.CenteredScreen
 import ai.darshj.djproxy.ui.components.ConnectRing
+import ai.darshj.djproxy.ui.components.DjMonogram
 import ai.darshj.djproxy.ui.components.GlassSurface
 import ai.darshj.djproxy.ui.components.StageLabel
 import ai.darshj.djproxy.ui.sheets.ImportSheet
@@ -81,14 +81,15 @@ import ai.darshj.djproxy.ui.sheets.ScanSheet
 import ai.darshj.djproxy.ui.sheets.ShareLanSheet
 import ai.darshj.djproxy.ui.sheets.TorInfoSheet
 import ai.darshj.djproxy.ui.theme.DjColors
+import ai.darshj.djproxy.ui.theme.DjSpacing
 import ai.darshj.djproxy.ui.theme.MotionTokens
 import ai.darshj.djproxy.ui.theme.djBackgroundBrush
-import ai.darshj.djproxy.ui.theme.djBrandTriBrush
 import ai.darshj.djproxy.ui.theme.rememberAnimationsEnabled
 import ai.darshj.djproxy.vpn.FeatureRegistry
 import ai.darshj.djproxy.vpn.VpnStage
 import ai.darshj.djproxy.vpn.VpnState
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * v4 composition root (§2). Owns the sealed [Route] (Home / Settings / About), the Home
@@ -115,6 +116,30 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
     val freeProxyBusy by viewModel.freeProxyBusy.collectAsStateWithLifecycle()
     val freeProxyNote by viewModel.freeProxyNote.collectAsStateWithLifecycle()
     val editing by viewModel.editing.collectAsStateWithLifecycle()
+    // v6 explicit free-refresh state (spinner -> "Updated · N · <relative>" -> inline error) + adblock.
+    val freeRefreshState by viewModel.freeRefreshState.collectAsStateWithLifecycle()
+    val blockAdsMode by viewModel.blockAdsMode.collectAsStateWithLifecycle()
+
+    val scope = rememberCoroutineScope()
+    // VPN Gate catalog (vpngate lane): read via its Gateway holder — null when the lane is absent, which
+    // hides the whole VPN Gate tab. Falls back to inert empty/idle flows so the reads stay valid either
+    // way. The Registrar publishes this at process start, so in a full build the controller is present.
+    val vpnGateCtl = ai.darshj.djproxy.vpngate.VpnGateGateway.controller
+    val vpnGateServers by (
+        vpnGateCtl?.servers
+            ?: remember { kotlinx.coroutines.flow.MutableStateFlow(emptyList<ai.darshj.djproxy.vpngate.VpnGateServer>()) }
+        ).collectAsStateWithLifecycle()
+    val vpnGateState by (
+        vpnGateCtl?.refreshState
+            ?: remember {
+                kotlinx.coroutines.flow.MutableStateFlow<ai.darshj.djproxy.vpngate.VpnGateRefreshState>(
+                    ai.darshj.djproxy.vpngate.VpnGateRefreshState.Idle,
+                )
+            }
+        ).collectAsStateWithLifecycle()
+    // Populate the VPN Gate list from the local cache on first composition — no outbound tap (parity
+    // with the free tab's on-entry cache load); the network pull stays behind the explicit Refresh.
+    LaunchedEffect(vpnGateCtl) { vpnGateCtl?.loadCache() }
 
     var route by rememberSaveable(stateSaver = RouteSaver) { mutableStateOf<Route>(Route.Home) }
     var sheet by rememberSaveable { mutableStateOf(HomeSheet.None) }
@@ -128,10 +153,13 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
     // Tor availability is honest capability: hidden entirely when the lane is absent.
     var torAvailable by remember { mutableStateOf(TorGateway.controller != null) }
     var diagnosticsAvailable by remember { mutableStateOf(FeatureRegistry.criticalFailureSink != null) }
+    // adblock capability is honest, same rule as Tor: the Block-ads chip is hidden until the lane attaches.
+    var adblockAvailable by remember { mutableStateOf(ai.darshj.djproxy.adblock.AdblockGateway.controller != null) }
     LaunchedEffect(Unit) {
         while (true) {
             torAvailable = TorGateway.controller != null
             diagnosticsAvailable = FeatureRegistry.criticalFailureSink != null
+            adblockAvailable = ai.darshj.djproxy.adblock.AdblockGateway.controller != null
             delay(2000)
         }
     }
@@ -188,6 +216,8 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
                     torAvailable = torAvailable,
                     torActive = torActive,
                     diagnosticsAvailable = diagnosticsAvailable,
+                    adblockAvailable = adblockAvailable,
+                    blockAdsMode = blockAdsMode,
                     onOpenSettings = { route = Route.Settings },
                     onOpenServers = { route = Route.Servers },
                     onOpenSheet = { sheet = it },
@@ -225,6 +255,32 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
                     onApplyFree = { entry ->
                         viewModel.applyFreeProxy(entry)
                         route = Route.Home
+                    },
+                    freeState = freeRefreshState,
+                    vpnGateAvailable = vpnGateCtl != null,
+                    vpnGate = vpnGateServers.map { s ->
+                        VpnGateRow(
+                            id = s.key,
+                            country = (s.flagEmoji + " " + s.countryLong).trim(),
+                            host = s.hostName,
+                            pingMs = s.ping.takeIf { it >= 0 },
+                            score = s.score.takeIf { it > 0 },
+                            speedMbps = s.speedMbps.takeIf { s.speed > 0 },
+                            directlyDialable = s.directlyDialable,
+                        )
+                    },
+                    vpnGateBusy = vpnGateState is ai.darshj.djproxy.vpngate.VpnGateRefreshState.Loading,
+                    vpnGateError = (vpnGateState as? ai.darshj.djproxy.vpngate.VpnGateRefreshState.Error)?.reason,
+                    onRefreshVpnGate = { scope.launch { vpnGateCtl?.refresh() } },
+                    onUseVpnGate = { row ->
+                        vpnGateServers.firstOrNull { it.key == row.id }?.let { viewModel.useVpnGate(it) }
+                        route = Route.Home
+                    },
+                    onSaveVpnGate = { row ->
+                        vpnGateServers.firstOrNull { it.key == row.id }?.let { viewModel.saveVpnGate(it) }
+                    },
+                    onExportVpnGate = { row ->
+                        vpnGateServers.firstOrNull { it.key == row.id }?.let { vpnGateCtl?.shareOvpn(onboardingContext, it) }
                     },
                 )
                 Route.Settings -> BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -343,6 +399,8 @@ private fun HomeContent(
     torAvailable: Boolean,
     torActive: Boolean,
     diagnosticsAvailable: Boolean,
+    adblockAvailable: Boolean,
+    blockAdsMode: Boolean,
     onOpenSettings: () -> Unit,
     onOpenServers: () -> Unit,
     onOpenSheet: (HomeSheet) -> Unit,
@@ -363,207 +421,192 @@ private fun HomeContent(
     // tap to "add a source" instead of punishing it with a validation error.
     val hasSource = ui.config.host.isNotBlank() || torMode
 
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-      // Centre + cap the reading column on the Fold7 unfolded / wide panes; identical 20dp gutter on
-      // phone widths (zero regression).
-      val pad = responsiveContentPadding(maxWidth)
-      LazyColumn(
+    // §ui-center: CenteredScreen replaces the old top-anchoring BoxWithConstraints+LazyColumn. Home's
+    // content is a small fixed cluster (header, ring hero, source strip, at most one error card / chip
+    // row / disclosure) — not a growing list — so it belongs at the viewport's true vertical centre at
+    // rest, and only falls back to top-anchored scroll once the error card / expanded chips / expanded
+    // disclosure push it past the viewport. `Arrangement.spacedBy(.., CenterVertically)` gives both the
+    // 20dp gap the old LazyColumn had AND the whole-group centring in one arrangement.
+    CenteredScreen(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = pad,
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+        verticalArrangement = Arrangement.spacedBy(DjSpacing.xl, Alignment.CenterVertically),
     ) {
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        // The same tri-tone brand ring as the splash + ConnectRing, so splash -> home ->
-                        // about all carry one consistent mark.
-                        Canvas(modifier = Modifier.size(28.dp)) {
-                            val c = Offset(size.width / 2f, size.height / 2f)
-                            drawArc(
-                                brush = djBrandTriBrush(c),
-                                startAngle = -90f,
-                                sweepAngle = 360f,
-                                useCenter = false,
-                                topLeft = Offset(2.dp.toPx(), 2.dp.toPx()),
-                                size = Size(size.width - 4.dp.toPx(), size.height - 4.dp.toPx()),
-                                style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round),
-                            )
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        Text("DJProxy", style = MaterialTheme.typography.displayMedium, color = DjColors.TextPrimary)
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "Device-wide, fail-closed proxy tunnel.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = DjColors.TextSecondary,
-                        )
-                        Text(
-                            "  ·  by darshj.ai",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = DjColors.TextTertiary,
-                        )
-                    }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // The big DJ monogram — same tri-tone brand sweep as the splash + ConnectRing, so
+                    // splash -> home -> about all carry one consistent mark.
+                    DjMonogram(size = 36.dp)
+                    Spacer(Modifier.width(DjSpacing.sm))
+                    Text("DJProxy", style = MaterialTheme.typography.displayMedium, color = DjColors.TextPrimary)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { onOpenSheet(HomeSheet.ShareLan) }) {
-                        Icon(
-                            Icons.Filled.Share,
-                            contentDescription = "Share connection",
-                            tint = DjColors.TextSecondary,
-                        )
-                    }
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = DjColors.TextSecondary)
-                    }
+                    Text(
+                        "Device-wide, fail-closed proxy tunnel.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = DjColors.TextSecondary,
+                    )
+                    Text(
+                        "  ·  by darshj.ai",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = DjColors.TextTertiary,
+                    )
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { onOpenSheet(HomeSheet.ShareLan) }) {
+                    Icon(
+                        Icons.Filled.Share,
+                        contentDescription = "Share connection",
+                        tint = DjColors.TextSecondary,
+                    )
+                }
+                IconButton(onClick = onOpenSettings) {
+                    Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = DjColors.TextSecondary)
                 }
             }
         }
 
         // TIER 0 HERO — the ring + one live line of truth.
-        item {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            BoxWithConstraints(contentAlignment = Alignment.Center) {
+                // The hero owns more of the canvas on the unfolded Fold7 (up to 280dp) instead of
+                // floating small in empty space; identical 200dp on a folded phone.
+                val ringSize = (maxWidth * 0.6f).coerceIn(200.dp, 280.dp)
+                if (torActive) TorOnionOrbit(size = ringSize * 1.12f)
+                ConnectRing(
+                    stage = vpnState.stage,
+                    onClick = {
+                        // First run (no source, not connected): the first tap steers to "add a
+                        // proxy" instead of dropping a validation error under the ring.
+                        if (!hasSource &&
+                            vpnState.stage != VpnStage.CONNECTED &&
+                            vpnState.stage != VpnStage.RECONNECTING
+                        ) {
+                            onOpenSheet(HomeSheet.ManualEdit)
+                        } else {
+                            viewModel.onRingTap()
+                        }
+                    },
+                    ringSize = ringSize,
+                    torBootstrapPct = torBootstrap,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            // Reserve a stable height so the ring doesn't jitter up/down as the sub-label lines
+            // appear/disappear across idle -> connecting -> connected -> tor-bootstrap.
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.heightIn(min = 84.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                BoxWithConstraints(contentAlignment = Alignment.Center) {
-                    // The hero owns more of the canvas on the unfolded Fold7 (up to 280dp) instead of
-                    // floating small in empty space; identical 200dp on a folded phone.
-                    val ringSize = (maxWidth * 0.6f).coerceIn(200.dp, 280.dp)
-                    if (torActive) TorOnionOrbit(size = ringSize * 1.12f)
-                    ConnectRing(
-                        stage = vpnState.stage,
-                        onClick = {
-                            // First run (no source, not connected): the first tap steers to "add a
-                            // proxy" instead of dropping a validation error under the ring.
-                            if (!hasSource &&
-                                vpnState.stage != VpnStage.CONNECTED &&
-                                vpnState.stage != VpnStage.RECONNECTING
-                            ) {
-                                onOpenSheet(HomeSheet.ManualEdit)
-                            } else {
-                                viewModel.onRingTap()
-                            }
-                        },
-                        ringSize = ringSize,
-                        torBootstrapPct = torBootstrap,
+                if (torBootstrap != null) {
+                    Text(
+                        "Building Tor circuit… $torBootstrap%",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = DjColors.TorPurple,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    // Make the cancel gesture discoverable — the ring accepts a tap to abort the
+                    // bootstrap so it is never a silent, uncancellable wait.
+                    Text(
+                        "Tap the ring to cancel",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = DjColors.TextTertiary,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                } else {
+                    StageLabel(stage = vpnState.stage)
+                }
+                redactedLine?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = DjColors.TextTertiary,
+                        modifier = Modifier.padding(top = 4.dp),
                     )
                 }
-                Spacer(Modifier.height(8.dp))
-                // Reserve a stable height so the ring doesn't jitter up/down as the sub-label lines
-                // appear/disappear across idle -> connecting -> connected -> tor-bootstrap.
-                Column(
-                    modifier = Modifier.heightIn(min = 84.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    if (torBootstrap != null) {
-                        Text(
-                            "Building Tor circuit… $torBootstrap%",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = DjColors.TorPurple,
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
-                        // Make the cancel gesture discoverable — the ring accepts a tap to abort the
-                        // bootstrap so it is never a silent, uncancellable wait.
-                        Text(
-                            "Tap the ring to cancel",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = DjColors.TextTertiary,
-                            modifier = Modifier.padding(top = 2.dp),
-                        )
-                    } else {
-                        StageLabel(stage = vpnState.stage)
-                    }
-                    redactedLine?.let {
-                        Text(
-                            it,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = DjColors.TextTertiary,
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
-                    }
-                    // True first-run empty state — guide the user to add a source instead of a blank ring.
-                    if (redactedLine == null && vpnState.stage == VpnStage.IDLE && !hasSource && torBootstrap == null) {
-                        Text(
-                            "Add a proxy to begin — tap the ring, or use Edit / Scan / Import below",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = DjColors.TextSecondary,
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
-                    }
-                    if (!controllerReady) {
-                        Text(
-                            "Preparing VPN service…",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = DjColors.TextTertiary,
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
-                    }
+                // True first-run empty state — guide the user to add a source instead of a blank ring.
+                if (redactedLine == null && vpnState.stage == VpnStage.IDLE && !hasSource && torBootstrap == null) {
+                    Text(
+                        "Add a proxy to begin — tap the ring, or use Edit / Scan / Import below",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = DjColors.TextSecondary,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
                 }
-                AnimatedVisibility(visible = torActive, enter = fadeIn() + scaleIn(initialScale = 0.85f), exit = fadeOut()) {
-                    TorActivePill(modifier = Modifier.padding(top = 12.dp), onClick = { onOpenSheet(HomeSheet.TorInfo) })
+                if (!controllerReady) {
+                    Text(
+                        "Preparing VPN service…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = DjColors.TextTertiary,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
                 }
+            }
+            AnimatedVisibility(visible = torActive, enter = fadeIn() + scaleIn(initialScale = 0.85f), exit = fadeOut()) {
+                TorActivePill(modifier = Modifier.padding(top = 12.dp), onClick = { onOpenSheet(HomeSheet.TorInfo) })
             }
         }
 
         // TIER 1 SOURCE
-        item {
-            SourceStrip(
-                onPaste = { onOpenSheet(HomeSheet.ManualEdit) },
-                onScan = { onOpenSheet(HomeSheet.Scan) },
-                onImport = { onOpenSheet(HomeSheet.Import) },
-                onOpenServers = onOpenServers,
-                torAvailable = torAvailable,
-                torEnabled = torMode,
-                torBootstrapPct = torBootstrap,
-                torActive = torActive,
-                onToggleTor = viewModel::setTorMode,
-                onTorInfo = { onOpenSheet(HomeSheet.TorInfo) },
-            )
-        }
+        SourceStrip(
+            onPaste = { onOpenSheet(HomeSheet.ManualEdit) },
+            onScan = { onOpenSheet(HomeSheet.Scan) },
+            onImport = { onOpenSheet(HomeSheet.Import) },
+            onOpenServers = onOpenServers,
+            torAvailable = torAvailable,
+            torEnabled = torMode,
+            torBootstrapPct = torBootstrap,
+            torActive = torActive,
+            onToggleTor = viewModel::setTorMode,
+            onTorInfo = { onOpenSheet(HomeSheet.TorInfo) },
+            adblockAvailable = adblockAvailable,
+            adblockEnabled = blockAdsMode,
+            onToggleAdblock = viewModel::setAdBlockMode,
+        )
 
         // Inline blocking error card (walled apart from advisory chips, §3).
-        item {
-            AnimatedVisibility(
-                visible = ui.validationError != null,
-                enter = fadeIn(tween(220)) + expandVertically(tween(220)),
-                exit = fadeOut(tween(150)) + shrinkVertically(tween(150)),
-            ) {
-                ui.validationError?.let { error ->
-                    GlassSurface(
-                        modifier = Modifier.fillMaxWidth(),
-                        borderBrush = androidx.compose.ui.graphics.Brush.linearGradient(
-                            listOf(DjColors.Rose, DjColors.RoseDeep),
-                        ),
-                        fill = androidx.compose.ui.graphics.Brush.verticalGradient(
-                            listOf(DjColors.Rose.copy(alpha = 0.14f), DjColors.Rose.copy(alpha = 0.05f)),
-                        ),
-                    ) {
-                        Column(Modifier.fillMaxWidth()) {
-                            Text(error.message, style = MaterialTheme.typography.titleSmall, color = DjColors.TextPrimary)
-                            Text(
-                                error.hint,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = DjColors.TextSecondary,
-                                modifier = Modifier.padding(top = 4.dp),
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.End,
-                            ) {
-                                if (diagnosticsAvailable) {
-                                    TextButton(onClick = viewModel::sendErrorReport) {
-                                        Text("Send report", color = DjColors.AccentCyan)
-                                    }
+        AnimatedVisibility(
+            visible = ui.validationError != null,
+            enter = fadeIn(tween(220)) + expandVertically(tween(220)),
+            exit = fadeOut(tween(150)) + shrinkVertically(tween(150)),
+        ) {
+            ui.validationError?.let { error ->
+                GlassSurface(
+                    modifier = Modifier.fillMaxWidth(),
+                    borderBrush = androidx.compose.ui.graphics.Brush.linearGradient(
+                        listOf(DjColors.Rose, DjColors.RoseDeep),
+                    ),
+                    fill = androidx.compose.ui.graphics.Brush.verticalGradient(
+                        listOf(DjColors.Rose.copy(alpha = 0.14f), DjColors.Rose.copy(alpha = 0.05f)),
+                    ),
+                ) {
+                    Column(Modifier.fillMaxWidth()) {
+                        Text(error.message, style = MaterialTheme.typography.titleSmall, color = DjColors.TextPrimary)
+                        Text(
+                            error.hint,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = DjColors.TextSecondary,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                        ) {
+                            if (diagnosticsAvailable) {
+                                TextButton(onClick = viewModel::sendErrorReport) {
+                                    Text("Send report", color = DjColors.AccentCyan)
                                 }
-                                TextButton(onClick = viewModel::dismissValidationError) {
-                                    Text("Dismiss", color = DjColors.Rose)
-                                }
+                            }
+                            TextButton(onClick = viewModel::dismissValidationError) {
+                                Text("Dismiss", color = DjColors.Rose)
                             }
                         }
                     }
@@ -572,17 +615,12 @@ private fun HomeContent(
         }
 
         // Advisory chips — connected-only on Home, animated entry.
-        item {
-            AnimatedVisibility(visible = connected, enter = fadeIn(), exit = fadeOut()) {
-                AnimatedAdvisoryChips(health = vpnState.health, modifier = Modifier.fillMaxWidth())
-            }
+        AnimatedVisibility(visible = connected, enter = fadeIn(), exit = fadeOut()) {
+            AnimatedAdvisoryChips(health = vpnState.health, modifier = Modifier.fillMaxWidth())
         }
 
         // TIER 0 collapsed details (status card + stats + log).
-        item {
-            DetailsDisclosure(state = vpnState, logs = logs, modifier = Modifier.fillMaxWidth())
-        }
-      }
+        DetailsDisclosure(state = vpnState, logs = logs, modifier = Modifier.fillMaxWidth())
     }
 }
 
@@ -673,6 +711,11 @@ private fun AboutContent(onBack: () -> Unit) {
             }
             Spacer(Modifier.width(4.dp))
             Text("About", style = MaterialTheme.typography.headlineSmall, color = DjColors.TextPrimary)
+        }
+        Box(modifier = Modifier.fillMaxWidth().padding(vertical = DjSpacing.lg), contentAlignment = Alignment.Center) {
+            // The same DJ monogram as the header + splash, at the "large" size this composable is
+            // meant to also serve About/Splash at — brand consistency across every surface it appears.
+            DjMonogram(size = 72.dp)
         }
         GlassSurface(modifier = Modifier.fillMaxWidth()) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

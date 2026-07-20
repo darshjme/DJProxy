@@ -258,7 +258,10 @@ class MainActivity : ComponentActivity() {
             val checker = ValidatorStatusChecker()
             val freeSource = RemoteFreeProxySource.create(applicationContext)
             viewModel.attachVault(store, checker, freeSource)
-            LogBus.i("UI", "Proxy vault, status checker, and free-list source attached.")
+            // vpngate lane: bind the ViewModel to the single VpnGateController the VpnGateRegistrar
+            // already built + published to VpnGateGateway (no second source/controller constructed here).
+            viewModel.attachVpnGate()
+            LogBus.i("UI", "Proxy vault, status checker, free-list source, and VPN Gate attached.")
         }.onFailure {
             LogBus.w("UI", "Vault seams unavailable: ${it.message}")
         }

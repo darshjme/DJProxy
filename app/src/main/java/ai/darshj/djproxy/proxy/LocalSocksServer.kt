@@ -93,6 +93,15 @@ class LocalSocksServer(
                 writeReply(out, REP_CMD_UNSUPPORTED); return
             }
 
+            // Adblock sinkhole: refuse a CONNECT to a blocked ad/tracker host. This is the one Kotlin
+            // choke point where the real domain is visible under the shipping MapDNS-on default (it
+            // arrives as ATYP_DOMAIN). runCatching so an adblock-lane fault can never break egress;
+            // null predicate (no adblock lane / toggle off) = allow all, byte-identical to before.
+            if (runCatching { ai.darshj.djproxy.vpn.FeatureRegistry.blockedHostPredicate?.invoke(request.host) }.getOrNull() == true) {
+                ai.darshj.djproxy.vpn.LogBus.i("socks", "adblock sinkhole ${request.host}:${request.port}")
+                writeReply(out, REP_HOST_UNREACHABLE); return
+            }
+
             // DNS-over-TCP to the in-tun sentinel (the resolver's TCP fallback for truncated answers)
             // is terminated locally via the tunnelled resolver, never dialed upstream to the
             // non-routable sentinel bogon.

@@ -153,6 +153,26 @@
         </service>
 
         <!--
+          CRASH FIX (2026-07-20): the vendored guardianproject org.torproject.jni.TorService calls
+          startForeground() in its onCreate(), but the tor-android AAR declares it WITHOUT a
+          foregroundServiceType. On Android 14+/targetSdk 35 that throws
+          MissingForegroundServiceTypeException the instant Tor starts — "it closes the screen".
+          Confirmed via the on-device crash trace (TorService.onCreate -> j). We merge a
+          foregroundServiceType onto the library's service so the FGS start is valid. tools:node="merge"
+          adds the attribute to the AAR's existing declaration; tools:replace guards against a
+          conflicting library value.
+        -->
+        <service
+            android:name="org.torproject.jni.TorService"
+            android:foregroundServiceType="specialUse"
+            tools:node="merge">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Tor onion routing"
+                tools:node="merge" />
+        </service>
+
+        <!--
           surfaces lane: Quick Settings tiles. Both extend TileService (API 24+); on API 21-23 the
           android.service.quicksettings.action.QS_TILE action is simply never dispatched by the
           platform, so declaring the <service> at minSdk 21 is safe — the class itself guards any

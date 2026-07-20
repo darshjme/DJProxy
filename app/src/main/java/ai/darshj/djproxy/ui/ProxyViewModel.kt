@@ -7,8 +7,16 @@ import ai.darshj.djproxy.config.ImportResult
 import ai.darshj.djproxy.config.NamedConfig
 import ai.darshj.djproxy.core.ProxyConfig
 import ai.darshj.djproxy.core.ProxyParser
+import ai.darshj.djproxy.freeproxy.FreeProxyEntry
+import ai.darshj.djproxy.freeproxy.FreeProxyResult
+import ai.darshj.djproxy.freeproxy.FreeProxySource
 import ai.darshj.djproxy.proxy.ProxyError
 import ai.darshj.djproxy.proxy.ValidationResult
+import ai.darshj.djproxy.store.ProxyOrigin
+import ai.darshj.djproxy.store.ProxyStatus
+import ai.darshj.djproxy.store.ProxyStore
+import ai.darshj.djproxy.store.SavedProxy
+import ai.darshj.djproxy.store.StatusChecker
 import ai.darshj.djproxy.tor.TorGateway
 import ai.darshj.djproxy.tor.TorStartResult
 import ai.darshj.djproxy.vpn.FeatureRegistry
@@ -53,6 +61,15 @@ data class ProxyUiState(
  * (e.g. `djproxy://connect`); it does not bypass the tap.
  */
 data class ImportPreview(val config: ProxyConfig, val autoConnect: Boolean)
+
+/**
+ * v6: the in-flight "edit a saved proxy" session. Non-null while the manual editor is editing an
+ * existing vault entry (vs. authoring a brand-new one). [name] is edited live in the sheet and
+ * committed back through [ProxyStore.update] on save. The password (if any) is materialised into the
+ * live [ProxyUiState.config] by [ProxyStore.resolve] when the edit begins, so the editor prefills the
+ * real credentials and re-encrypts them on save via the store — the VM never persists plaintext.
+ */
+data class EditContext(val id: String, val name: String)
 
 /**
  * Owns the canonical [ProxyConfig] and mediates every write path into it (paste box, individual
@@ -116,6 +133,265 @@ class ProxyViewModel : ViewModel() {
     fun attachController(controller: VpnController) {
         _controller.value = controller
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // v6: Proxy vault + live status + free public list (§1). The three seams are attached by the host
+    // activity exactly like [attachController]; the VM adds NO persistence, dial, or fetch logic of its
+    // own — every method below delegates to one of the three interfaces. Reuse funnels through the
+    // unchanged [applyConfig]/[VpnController.apply] path.
+    // ---------------------------------------------------------------------------------------------
+
+    private val _store = MutableStateFlow<ProxyStore?>(null)
+    private val _checker = MutableStateFlow<StatusChecker?>(null)
+    private val _freeSource = MutableStateFlow<FreeProxySource?>(null)
+
+    /** The reactive vault, already ordered by the store; empty until the store is attached. */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val savedProxies: StateFlow<List<SavedProxy>> = _store
+        .flatMapLatest { it?.proxies ?: MutableStateFlow(emptyList<SavedProxy>()) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** The vault's default entry id, or null. */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val defaultId: StateFlow<String?> = _store
+        .flatMapLatest { it?.defaultId ?: MutableStateFlow<String?>(null) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Live status per proxy, keyed by [SavedProxy.id] and [FreeProxyEntry.key]. */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val proxyStatuses: StateFlow<Map<String, ProxyStatus>> = _checker
+        .flatMapLatest { it?.statuses ?: MutableStateFlow(emptyMap<String, ProxyStatus>()) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    private val _freeProxies = MutableStateFlow<List<FreeProxyEntry>>(emptyList())
+
+    /** The parsed, SSRF-screened free public list (untrusted). Empty until the first fetch. */
+    val freeProxies: StateFlow<List<FreeProxyEntry>> = _freeProxies.asStateFlow()
+
+    private val _freeProxyBusy = MutableStateFlow(false)
+
+    /** True while a free-list fetch is in flight (drives the Refresh spinner). */
+    val freeProxyBusy: StateFlow<Boolean> = _freeProxyBusy.asStateFlow()
+
+    private val _freeProxyNote = MutableStateFlow<String?>(null)
+
+    /** A short honest note on the last free-list fetch ("Showing cached list" / a failure reason), or null. */
+    val freeProxyNote: StateFlow<String?> = _freeProxyNote.asStateFlow()
+
+    private val _editing = MutableStateFlow<EditContext?>(null)
+
+    /** Non-null while the manual editor is editing an existing vault entry (§5.4). */
+    val editing: StateFlow<EditContext?> = _editing.asStateFlow()
+
+    /** Attach the vault / status / free-list seams. Idempotent, mirrors [attachController]. */
+    fun attachVault(store: ProxyStore, checker: StatusChecker, freeSource: FreeProxySource) {
+        _store.value = store
+        _checker.value = checker
+        _freeSource.value = freeSource
+    }
+
+    /**
+     * Re-apply an arbitrary config through the EXACT v5 apply path (pre-flight + fail-closed bring-up).
+     * A saved/free proxy is a direct custom proxy, so any live Tor session is left first — a custom
+     * proxy and Tor are mutually exclusive (§5.4). No new dial logic is added.
+     */
+    private fun reuseConfig(config: ProxyConfig) {
+        if (_torMode.value) {
+            _torMode.value = false
+            _torBootstrap.value = null
+            torJob?.cancel()
+            torJob = null
+            stopTorIfRunning()
+        }
+        _uiState.value = _uiState.value.copy(
+            config = config,
+            pasteText = config.redacted(),
+            pasteError = null,
+        )
+        applyConfig(config)
+    }
+
+    /** Reuse a saved proxy: decrypt via [ProxyStore.resolve], then the identical [applyConfig] path. */
+    fun applySaved(id: String) {
+        val store = _store.value ?: return
+        viewModelScope.launch {
+            val config = store.resolve(id)
+            if (config == null) {
+                _uiState.value = _uiState.value.copy(
+                    validationError = ProxyError.Io(
+                        "This saved proxy could not be restored — it may have been deleted, or its saved " +
+                            "password could not be decrypted on this device.",
+                    ),
+                )
+                return@launch
+            }
+            reuseConfig(config)
+        }
+    }
+
+    /** Save the current editor config into the vault under [name] (password encrypted by the store). */
+    fun saveCurrent(name: String, origin: ProxyOrigin = ProxyOrigin.USER) {
+        val store = _store.value ?: return
+        viewModelScope.launch { store.save(name.ifBlank { defaultNameFor(_uiState.value.config) }, _uiState.value.config, origin) }
+    }
+
+    fun deleteSaved(id: String) {
+        val store = _store.value ?: return
+        viewModelScope.launch { store.delete(id) }
+    }
+
+    fun setDefault(id: String?) {
+        val store = _store.value ?: return
+        viewModelScope.launch { store.setDefault(id) }
+    }
+
+    fun reorder(orderedIds: List<String>) {
+        val store = _store.value ?: return
+        viewModelScope.launch { store.reorder(orderedIds) }
+    }
+
+    /**
+     * Move a saved entry one slot up/down and persist the new order (§5.3). A robust, accessible
+     * reorder that funnels through [ProxyStore.reorder] with no fragile drag math.
+     */
+    fun moveSaved(id: String, up: Boolean) {
+        val ids = savedProxies.value.map { it.id }.toMutableList()
+        val i = ids.indexOf(id)
+        if (i < 0) return
+        val j = if (up) i - 1 else i + 1
+        if (j !in ids.indices) return
+        ids[i] = ids[j].also { ids[j] = ids[i] }
+        reorder(ids)
+    }
+
+    // --- edit-a-saved-proxy session (§5.4) ---
+
+    /** Begin editing a saved proxy: prefill the live editor with its resolved (decrypted) config. */
+    fun beginEditSaved(saved: SavedProxy) {
+        val store = _store.value ?: return
+        viewModelScope.launch {
+            val config = store.resolve(saved.id) ?: return@launch
+            _uiState.value = _uiState.value.copy(
+                config = config,
+                pasteText = config.redacted(),
+                pasteError = null,
+                validationError = null,
+            )
+            _editing.value = EditContext(saved.id, saved.name)
+        }
+    }
+
+    fun setEditingName(name: String) {
+        _editing.value = _editing.value?.copy(name = name)
+    }
+
+    /** Commit the in-flight edit to the vault via [ProxyStore.update] and end the edit session. */
+    fun commitEdit() {
+        val store = _store.value ?: return
+        val edit = _editing.value ?: return
+        viewModelScope.launch {
+            store.update(edit.id, edit.name.ifBlank { defaultNameFor(_uiState.value.config) }, _uiState.value.config)
+            _editing.value = null
+        }
+    }
+
+    fun cancelEdit() {
+        _editing.value = null
+    }
+
+    // --- live status (§3) ---
+
+    /** Re-check one saved proxy now (resolves its full config incl. auth first). */
+    fun checkSaved(saved: SavedProxy) {
+        val store = _store.value ?: return
+        val checker = _checker.value ?: return
+        viewModelScope.launch {
+            val config = store.resolve(saved.id) ?: return@launch
+            checker.check(saved.id, config)
+        }
+    }
+
+    /** Re-check one free proxy now (auth-less public config). */
+    fun checkFree(entry: FreeProxyEntry) {
+        val checker = _checker.value ?: return
+        viewModelScope.launch { checker.check(entry.key, entry.toConfig()) }
+    }
+
+    /** Bounded-concurrency "check all" over the given saved rows (the visible window). */
+    fun checkAllSaved(saved: List<SavedProxy>) {
+        val store = _store.value ?: return
+        val checker = _checker.value ?: return
+        if (saved.isEmpty()) return
+        viewModelScope.launch {
+            val targets = saved.mapNotNull { s -> store.resolve(s.id)?.let { s.id to it } }
+            checker.checkAll(targets)
+        }
+    }
+
+    /** Bounded-concurrency "check all" over the given free rows (the visible window). */
+    fun checkAllFree(entries: List<FreeProxyEntry>) {
+        val checker = _checker.value ?: return
+        if (entries.isEmpty()) return
+        viewModelScope.launch { checker.checkAll(entries.map { it.key to it.toConfig() }) }
+    }
+
+    // --- free public list (§4) ---
+
+    /** Fetch (or serve cache when [force] is false) the free public proxy list. */
+    fun refreshFreeProxies(force: Boolean) {
+        val source = _freeSource.value ?: return
+        viewModelScope.launch {
+            _freeProxyBusy.value = true
+            try {
+                when (val result = source.fetch(force)) {
+                    is FreeProxyResult.Ok -> {
+                        _freeProxies.value = result.entries
+                        _freeProxyNote.value = if (result.fromCache) {
+                            "Showing the last cached list — couldn't refresh right now."
+                        } else {
+                            null
+                        }
+                    }
+                    is FreeProxyResult.Failed -> {
+                        _freeProxyNote.value = result.reason
+                    }
+                }
+            } finally {
+                _freeProxyBusy.value = false
+            }
+        }
+    }
+
+    /**
+     * Populate the free list from the LOCAL CACHE ONLY (no network). Called when the Free tab is first
+     * opened so merely viewing it never emits an outbound request — the network pull stays behind the
+     * explicit [refreshFreeProxies] `force = true`. No busy spinner: this is a cheap local read.
+     */
+    fun loadFreeProxiesFromCache() {
+        val source = _freeSource.value ?: return
+        if (_freeProxies.value.isNotEmpty()) return
+        viewModelScope.launch {
+            val cached = source.fetchCachedOnly() ?: return@launch
+            if (_freeProxies.value.isEmpty()) _freeProxies.value = cached.entries
+        }
+    }
+
+    /** Save a free public proxy into the vault, keeping its FREE_PUBLIC provenance (§4.5). */
+    fun saveFreeProxy(entry: FreeProxyEntry, name: String) {
+        val store = _store.value ?: return
+        viewModelScope.launch {
+            store.save(name.ifBlank { entry.sourceLabel }, entry.toConfig(), ProxyOrigin.FREE_PUBLIC)
+        }
+    }
+
+    /** Use a free public proxy now — the same reuse/apply path (after the untrusted-server consent gate). */
+    fun applyFreeProxy(entry: FreeProxyEntry) {
+        reuseConfig(entry.toConfig())
+    }
+
+    /** A sensible default vault name from a config when the user leaves the name blank. */
+    private fun defaultNameFor(config: ProxyConfig): String =
+        if (config.host.isNotBlank()) "${config.host}:${config.port}" else "Proxy"
 
     fun onPasteTextChanged(text: String) {
         val current = _uiState.value

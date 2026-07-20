@@ -5,10 +5,14 @@
 [![Platform](https://img.shields.io/badge/platform-Android%205.0%2B-3fb950?style=flat-square)](#build-from-source)
 [![Kotlin](https://img.shields.io/badge/kotlin-2.0-a371f7?style=flat-square)](app/build.gradle.kts)
 
-DJProxy is a free, open-source Android app that puts one SOCKS5 or HTTP-CONNECT proxy — or Tor — in
+**DJProxy by Darshj.ai** is a free, open-source Android app that puts one SOCKS5 or HTTP-CONNECT proxy — or Tor — in
 front of every app on the device. Paste it, scan a QR code, import a subscription or `.ovpn` file, or
 just flip the Tor toggle; tap the ring, and either the whole phone routes through it or nothing does —
 there's no in-between state where some traffic quietly escapes.
+
+*"DJProxy by Darshj.ai" is the app's full name (`app_name` in `strings.xml`, driving the manifest
+label and the About screen). Android launchers routinely truncate a name that long under the icon —
+you'll usually see just "DJProxy" there, which is expected.*
 
 Most "proxy apps" only redirect the browser, or leak DNS and WebRTC around the tunnel they just set
 up. DJProxy is built the other way: closed by construction — routes, DNS, and IPv6/UDP handling all
@@ -32,6 +36,11 @@ indicators, never as a gate that can throw a scary error over a proxy that is ac
 A failed advisory check is shown as an amber chip under the status card, not an error screen — see
 [Advisory health, not a hard gate](#advisory-health-not-a-hard-gate) for why that's the honest design and
 what changed from earlier versions.
+
+v6 adds a **Servers** screen: save a proxy you've entered and reuse it later, see a live
+reachable/unreachable status for every saved entry, and pick from a maintained list of free public
+proxies if you don't have your own — see [Proxy vault, live status, and free public
+proxies](#proxy-vault-live-status-and-free-public-proxies) below.
 
 ## Quick start
 
@@ -180,6 +189,60 @@ DJProxy still speaks plaintext SOCKS5 and HTTP-CONNECT only. `ss://` import work
 Shadowsocks cipher that's actually unencrypted (`none`/`plain`); every real AEAD cipher, and the
 `vmess://`/`vless://`/`trojan://`/`hysteria2://` families, are rejected by name with the reason —
 DJProxy would rather say "I can't speak this" than fake a connection that silently fails later.
+
+## Proxy vault, live status, and free public proxies
+
+Through v5, a proxy was single-use: type or import it, connect, and it was gone the moment you
+closed the sheet. v6 adds a **Servers** screen so you don't have to re-enter the same proxy every
+time, without changing anything about how a proxy is actually applied.
+
+<img src="./assets/v6_vault_architecture.svg" alt="Proxy vault architecture" width="100%">
+
+- **Save, list, reuse, edit, delete, reorder, default.** Tap Save on any proxy you've entered (from
+  the Edit sheet, or once connected) and give it a name. The Servers screen's **Saved** tab lists
+  every one of them; tapping a row applies it through the exact same `VpnController.apply()` path
+  every other proxy source already uses — the vault adds no second way to bring the tunnel up. Long-
+  press to reorder, mark one as default (it's preselected next time you open the app), or edit/delete.
+- **The password is never stored in the clear.** Host, port, type, and username are plain metadata
+  (`store/SavedProxy.kt`, hand-serialised into `SharedPreferences` by `store/VaultCodec.kt` — no JSON
+  dependency, so it's testable under Robolectric-free unit tests). The password is handed to the
+  **existing** `vpn/CredentialStore` (AES-256-GCM, AndroidKeyStore, non-extractable) and comes back
+  only as ciphertext, decrypted on demand a moment before an apply. On API 21–22, where Keystore
+  AES-GCM doesn't exist, the entry still saves — just without a password, exactly how the live tunnel
+  already degrades on those versions. Nothing here touches `vpn/CredentialStore.kt` itself.
+- **Live status, without bringing up a tunnel.** Every saved (and free) proxy shows a status dot —
+  reachable, unreachable, checking, or unknown — plus latency and a last-checked time. This runs the
+  **same** `proxy/Validator`/`PreflightValidator` real TCP-connect-plus-handshake pre-flight the
+  Connect button already runs, invoked standalone: it never calls `VpnController.apply()`, never
+  starts the VPN service, never opens a tun. A manual "Check all" is always available; a light
+  auto-refresh only checks entries older than five minutes, only while the Servers screen is open, and
+  backs off entirely under battery saver — see the flow below.
+
+<img src="./assets/v6_status_flow.svg" alt="Live proxy status flow" width="100%">
+
+- **A maintained free public proxy list**, for when you don't have your own. The **Free servers** tab
+  pulls plain `ip:port` text lists from [jetkai/proxy-list](https://github.com/jetkai/proxy-list) and
+  [proxifly/free-proxy-list](https://github.com/proxifly/free-proxy-list) over HTTPS, screens out
+  anything pointing at loopback, private, link-local, CGNAT, or otherwise reserved addresses (so a
+  poisoned list entry can't be used to probe the phone's own LAN), caps the merged result at 200
+  entries, and caches it for six hours. Text, not JSON, on purpose — it parses with the same
+  `ProxyParser` vocabulary the paste box already has, so this ships with **zero new dependencies**.
+
+<img src="./assets/v6_freeproxy_pipeline.svg" alt="Free public proxy pipeline" width="100%">
+
+  Every entry in that tab carries a plain caveat and needs one tap to acknowledge before you save or
+  use it:
+
+  > **Untrusted public proxies.** These are unvetted, community-listed servers. They can be slow, go
+  > offline, log traffic, or inject content. Don't send sensitive data. For real privacy use your own
+  > proxy or Tor.
+
+  Saving one to your vault keeps that provenance visible — it's tagged `FREE_PUBLIC` and shown with a
+  "public" badge, so it's never mistaken for a proxy you actually chose and trust.
+
+None of this touches a frozen core file. `store/` and `freeproxy/` are two new packages that read
+`ProxyConfig`, dial through the existing `Validator`, and hand a resolved `ProxyConfig` to the
+unchanged `VpnController.apply()` — the full contract is in [DESIGN_V6.md](DESIGN_V6.md).
 
 ## Features
 
@@ -506,13 +569,26 @@ covers the location/hotspot ceilings specifically; the rest of the model:
 - **Traffic-analysis correlation (timing, packet size) is out of scope**, as it is for essentially
   every VPN. DJProxy's threat model is a passive network observer or the destination server trying
   to learn your real IP or the hostnames you're resolving — not a global adversary correlating flows.
+- **VPN Gate / OpenVPN is a deferred future epic, not a v6 feature.** VPN Gate's public API only ever
+  hands out OpenVPN configs — it exposes no SOCKS5/HTTP endpoint of its own, so it can't ride DJProxy's
+  existing proxy dial path. Consuming it for real would mean embedding a second, parallel tunnel
+  engine. The mature option, `ics-openvpn`, is **GPLv2**; bundling it would force DJProxy's own source
+  to go GPLv2, which is not compatible with shipping this app as **MIT**. The license-clean option,
+  OpenVPN3's **MPL-2.0** branch, has no existing Android JNI wrapper — building one is a multi-week
+  engine effort on the order of the original hev-socks5-tunnel integration, not a quick add. The owner
+  chose to park this rather than either compromise the license or ship it half-built; the full
+  protocol/license study is at `D:\AI\android-tools\vpngate-re\VPNGATE_STUDY.md`, and the scoped
+  decision is recorded in [DESIGN_V6.md](DESIGN_V6.md#7-vpn-gate--openvpn--future-epic-not-built). If
+  it's ever pursued, the clean path is an OpenVPN3-MPL JNI sidecar exposing a local SOCKS front, so it
+  plugs into `VpnController.apply(socks5://127.0.0.1:port)` the same way Tor already does — zero core
+  edits, same seam.
 
 See [DESIGN.md](DESIGN.md) for the original core leak-proofing/threat model, [DESIGN_V3.md](DESIGN_V3.md)
 for the full v3 architecture (advisory health, the DNS resolver chain, location/hotspot lanes,
-crash-proofing, and the compatibility matrix) these mechanisms build on, and
-[DESIGN_V4.md](DESIGN_V4.md) for the v4 UI/feature-lane blueprint (QR/import/Tor/surfaces/expressive
-UI) — all of it additive over the same frozen core, per the disjoint file-ownership map in that
-document.
+crash-proofing, and the compatibility matrix) these mechanisms build on, [DESIGN_V4.md](DESIGN_V4.md)
+for the v4 UI/feature-lane blueprint (QR/import/Tor/surfaces/expressive UI), and
+[DESIGN_V6.md](DESIGN_V6.md) for the v6 proxy vault, live status, and free-public-proxy blueprint — all
+of it additive over the same frozen core, per the disjoint file-ownership map in each document.
 
 ## Build from source
 
@@ -558,11 +634,12 @@ address for diagnostic e-mails, and a rebranded fork should not silently mail re
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). The short version: read `DESIGN_V3.md` (the tunnel core) and
-`DESIGN_V4.md` (the UI/feature lanes) first, never weaken a leak guarantee or turn an advisory check
-back into a hard gate to make a feature easier, don't add a second `VpnService.protect()` call site
-anywhere in the codebase, and never edit a DO-NOT-TOUCH core file listed in `DESIGN_V4.md` §0 — every
-v4 lane attaches through the existing `FeatureRegistry`/`VpnRuntime` seams instead.
+See [CONTRIBUTING.md](CONTRIBUTING.md). The short version: read `DESIGN_V3.md` (the tunnel core),
+`DESIGN_V4.md` (the UI/feature lanes), and `DESIGN_V6.md` (the proxy vault/status/free-list lanes)
+first, never weaken a leak guarantee or turn an advisory check back into a hard gate to make a feature
+easier, don't add a second `VpnService.protect()` call site anywhere in the codebase, and never edit a
+DO-NOT-TOUCH core file listed in `DESIGN_V4.md` §0 / `DESIGN_V6.md` §0 — every v4/v6 lane attaches
+through the existing `FeatureRegistry`/`VpnRuntime`/`Validator`/`CredentialStore` seams instead.
 
 ## License
 

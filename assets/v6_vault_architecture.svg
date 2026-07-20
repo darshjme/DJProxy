@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1180" height="640" viewBox="0 0 1180 640" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1180" y2="640" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0d1117"/>
+      <stop offset="1" stop-color="#161b22"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b949e"/>
+    </marker>
+    <marker id="arrowBlue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#58a6ff"/>
+    </marker>
+  </defs>
+
+  <rect width="1180" height="640" fill="url(#bg)"/>
+  <text x="32" y="40" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="20" font-weight="600" fill="#c9d1d9">Proxy vault — v6 store lane</text>
+  <text x="32" y="64" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" fill="#8b949e">One new package (store/), zero core edits — reuse only</text>
+
+  <!-- UI box -->
+  <rect x="32" y="96" width="270" height="110" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="167" y="126" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="15" font-weight="600" fill="#c9d1d9">ServersScreen</text>
+  <text x="167" y="146" text-anchor="middle" font-family="Consolas, monospace" font-size="11" fill="#8b949e">ProxyRow · SaveProxySheet</text>
+  <text x="167" y="164" text-anchor="middle" font-family="Consolas, monospace" font-size="11" fill="#8b949e">tap = reuse, save, edit,</text>
+  <text x="167" y="180" text-anchor="middle" font-family="Consolas, monospace" font-size="11" fill="#8b949e">delete, reorder, default</text>
+
+  <!-- ProxyStore interface box -->
+  <rect x="360" y="96" width="300" height="150" rx="10" fill="#0d2a1f" stroke="#3fb950" stroke-width="1.5"/>
+  <text x="510" y="122" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="15" font-weight="600" fill="#7ee787">ProxyStore (interface)</text>
+  <text x="510" y="146" text-anchor="middle" font-family="Consolas, monospace" font-size="11" fill="#c9d1d9">save / update / delete</text>
+  <text x="510" y="164" text-anchor="middle" font-family="Consolas, monospace" font-size="11" fill="#c9d1d9">reorder / setDefault</text>
+  <text x="510" y="182" text-anchor="middle" font-family="Consolas, monospace" font-size="11" fill="#c9d1d9">resolve(id) -&gt; ProxyConfig?</text>
+  <text x="510" y="204" text-anchor="middle" font-family="Consolas, monospace" font-size="10.5" fill="#7ee787">StateFlow&lt;List&lt;SavedProxy&gt;&gt;</text>
+  <text x="510" y="222" text-anchor="middle" font-family="Consolas, monospace" font-size="10" fill="#8b949e">impl: SharedPreferencesProxyStore</text>
+
+  <!-- VaultCodec -->
+  <rect x="700" y="96" width="240" height="80" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="820" y="124" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="14" font-weight="600" fill="#c9d1d9">VaultCodec</text>
+  <text x="820" y="144" text-anchor="middle" font-family="Consolas, monospace" font-size="10.5" fill="#8b949e">encode/decode — no JSON dep</text>
+  <text x="820" y="160" text-anchor="middle" font-family="Consolas, monospace" font-size="10.5" fill="#8b949e">pure, unit-testable</text>
+
+  <!-- prefs -->
+  <rect x="980" y="96" width="168" height="80" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="1064" y="124" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="13" font-weight="600" fill="#c9d1d9">SharedPreferences</text>
+  <text x="1064" y="144" text-anchor="middle" font-family="Consolas, monospace" font-size="10" fill="#8b949e">djproxy_vault</text>
+  <text x="1064" y="160" text-anchor="middle" font-family="Consolas, monospace" font-size="10" fill="#8b949e">vault.v1 · vault.default</text>
+
+  <!-- CredentialStore (frozen core) -->
+  <rect x="360" y="290" width="300" height="120" rx="10" fill="#2d1a1a" stroke="#f85149" stroke-width="1.5" stroke-dasharray="5,4"/>
+  <text x="510" y="318" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="14" font-weight="600" fill="#ffa198">vpn/CredentialStore</text>
+  <text x="510" y="336" text-anchor="middle" font-family="Consolas, monospace" font-size="10.5" fill="#c9d1d9">FROZEN CORE — not edited</text>
+  <text x="510" y="356" text-anchor="middle" font-family="Consolas, monospace" font-size="10.5" fill="#c9d1d9">AES-256-GCM · AndroidKeyStore</text>
+  <text x="510" y="374" text-anchor="middle" font-family="Consolas, monospace" font-size="10.5" fill="#c9d1d9">encrypt(pw) / decrypt(blob)</text>
+  <text x="510" y="394" text-anchor="middle" font-family="Consolas, monospace" font-size="10" fill="#ffa198">API 21-22: null -&gt; hasPassword=false</text>
+
+  <!-- pw prefs -->
+  <rect x="700" y="300" width="200" height="90" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="800" y="330" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="13" font-weight="600" fill="#c9d1d9">Ciphertext only</text>
+  <text x="800" y="350" text-anchor="middle" font-family="Consolas, monospace" font-size="10.5" fill="#8b949e">key pw.&lt;id&gt;</text>
+  <text x="800" y="368" text-anchor="middle" font-family="Consolas, monospace" font-size="10" fill="#8b949e">never plaintext</text>
+
+  <!-- SavedProxy model -->
+  <rect x="32" y="290" width="270" height="150" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="167" y="316" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="14" font-weight="600" fill="#c9d1d9">SavedProxy</text>
+  <text x="167" y="336" text-anchor="middle" font-family="Consolas, monospace" font-size="10.5" fill="#8b949e">id, name, type, host, port,</text>
+  <text x="167" y="352" text-anchor="middle" font-family="Consolas, monospace" font-size="10.5" fill="#8b949e">username, dnsServer,</text>
+  <text x="167" y="368" text-anchor="middle" font-family="Consolas, monospace" font-size="10.5" fill="#8b949e">hasPassword, origin,</text>
+  <text x="167" y="384" text-anchor="middle" font-family="Consolas, monospace" font-size="10.5" fill="#8b949e">isDefault, order</text>
+  <text x="167" y="404" text-anchor="middle" font-family="Consolas, monospace" font-size="10" fill="#7ee787">no plaintext password</text>
+
+  <!-- Apply path -->
+  <rect x="360" y="480" width="300" height="110" rx="10" fill="#0d2a1f" stroke="#3fb950" stroke-width="1.5"/>
+  <text x="510" y="508" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="14" font-weight="600" fill="#7ee787">resolve(id)</text>
+  <text x="510" y="528" text-anchor="middle" font-family="Consolas, monospace" font-size="10.5" fill="#c9d1d9">decrypts password on demand</text>
+  <text x="510" y="546" text-anchor="middle" font-family="Consolas, monospace" font-size="10.5" fill="#c9d1d9">rebuilds full ProxyConfig</text>
+  <text x="510" y="566" text-anchor="middle" font-family="Consolas, monospace" font-size="10" fill="#7ee787">null on decrypt failure — fail closed</text>
+
+  <rect x="700" y="480" width="448" height="110" rx="10" fill="#2d1a1a" stroke="#f85149" stroke-width="1.5" stroke-dasharray="5,4"/>
+  <text x="924" y="508" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="14" font-weight="600" fill="#ffa198">VpnController.apply(config) — FROZEN CORE</text>
+  <text x="924" y="528" text-anchor="middle" font-family="Consolas, monospace" font-size="10.5" fill="#c9d1d9">unchanged v5 path: pre-flight, tun bring-up, probe</text>
+  <text x="924" y="548" text-anchor="middle" font-family="Consolas, monospace" font-size="10.5" fill="#c9d1d9">the vault adds no new connect/dial logic</text>
+  <text x="924" y="568" text-anchor="middle" font-family="Consolas, monospace" font-size="10" fill="#ffa198">exactly the seam v4/v5 already used</text>
+
+  <!-- arrows -->
+  <line x1="302" y1="150" x2="358" y2="150" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <line x1="660" y1="140" x2="698" y2="130" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="940" y1="136" x2="978" y2="136" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="167" y1="206" x2="167" y2="288" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="510" y1="246" x2="510" y2="288" stroke="#3fb950" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="660" y1="350" x2="698" y2="345" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="510" y1="410" x2="510" y2="478" stroke="#3fb950" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="660" y1="530" x2="698" y2="530" stroke="#f85149" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <text x="32" y="616" font-family="Segoe UI, sans-serif" font-size="11" fill="#8b949e">solid = read/write inside the new store package · dashed red = read-only reuse of frozen core, never edited</text>
+</svg>

@@ -26,6 +26,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
+import ai.darshj.djproxy.freeproxy.RemoteFreeProxySource
+import ai.darshj.djproxy.store.SharedPreferencesProxyStore
+import ai.darshj.djproxy.store.ValidatorStatusChecker
 import ai.darshj.djproxy.ui.theme.DJProxyTheme
 import ai.darshj.djproxy.vpn.DjVpnService
 import ai.darshj.djproxy.vpn.FeatureRegistry
@@ -117,6 +120,7 @@ class MainActivity : ComponentActivity() {
 
         requestNotificationPermissionIfNeeded()
         requestVpnConsent()
+        attachVaultSeams()
 
         // Ingest any launch intent (deep link / share / .ovpn open) — parses and raises the Import
         // sheet with the target for one confirmation tap; never auto-connects silently (§11).
@@ -239,6 +243,25 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         runCatching { FeatureRegistry.locationController?.refreshCapability(this) }
+    }
+
+    /**
+     * v6: construct the three process-simple singletons the vault surface needs — the vault store
+     * (SharedPreferences + reused CredentialStore), the pre-flight status checker (reuses
+     * PreflightValidator via [VpnRuntime.protector]), and the free public list source — and hand them
+     * to the view model, mirroring [attachController]. Wrapped in runCatching so a construction failure
+     * can never crash launch; the Servers surface simply shows its empty states until attached.
+     */
+    private fun attachVaultSeams() {
+        runCatching {
+            val store = SharedPreferencesProxyStore.fromContext(applicationContext)
+            val checker = ValidatorStatusChecker()
+            val freeSource = RemoteFreeProxySource.create(applicationContext)
+            viewModel.attachVault(store, checker, freeSource)
+            LogBus.i("UI", "Proxy vault, status checker, and free-list source attached.")
+        }.onFailure {
+            LogBus.w("UI", "Vault seams unavailable: ${it.message}")
+        }
     }
 
     private fun requestNotificationPermissionIfNeeded() {

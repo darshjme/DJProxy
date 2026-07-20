@@ -18,9 +18,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.Icon
@@ -51,6 +54,7 @@ fun SourceStrip(
     onPaste: () -> Unit,
     onScan: () -> Unit,
     onImport: () -> Unit,
+    onOpenServers: () -> Unit,
     torAvailable: Boolean,
     torEnabled: Boolean,
     torBootstrapPct: Int?,
@@ -91,6 +95,10 @@ fun SourceStrip(
             )
         }
 
+        // v6 (§5.1): the Servers entry — the vault of saved proxies + the free public list. Always
+        // enabled (independent of Tor mode) so the user can browse/save even while a Tor session runs.
+        ServersEntry(onClick = onOpenServers)
+
         if (torAvailable) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -118,6 +126,44 @@ fun SourceStrip(
                 )
             }
         }
+    }
+}
+
+/** A full-width entry into the Servers surface (saved vault + free public list). Glass row, chevron. */
+@Composable
+private fun ServersEntry(onClick: () -> Unit) {
+    val shape = RoundedCornerShape(18.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(Brush.verticalGradient(listOf(DjColors.GlassFillStrong, DjColors.GlassFill)))
+            .border(
+                1.dp,
+                Brush.linearGradient(
+                    listOf(DjColors.AccentIndigo.copy(alpha = 0.45f), DjColors.AccentCyan.copy(alpha = 0.30f)),
+                ),
+                shape,
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Filled.Dns, contentDescription = null, tint = DjColors.AccentCyan, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text("Servers", style = MaterialTheme.typography.titleSmall, color = DjColors.TextPrimary)
+            Text(
+                "Saved proxies & free public servers",
+                style = MaterialTheme.typography.bodySmall,
+                color = DjColors.TextSecondary,
+            )
+        }
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = DjColors.TextSecondary,
+        )
     }
 }
 

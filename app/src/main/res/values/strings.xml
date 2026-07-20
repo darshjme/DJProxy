@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">DJProxy</string>
+    <string name="app_name">DJProxy by Darshj.ai</string>
+    <!-- Quick Settings tile labels stay short so they never truncate mid-word on the tile. -->
     <string name="tile_connect_label">DJProxy</string>
     <string name="tile_tor_label">Tor</string>
 </resources>

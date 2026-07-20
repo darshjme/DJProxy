@@ -11,6 +11,7 @@ package ai.darshj.djproxy.ui
  */
 sealed interface Route {
     data object Home : Route
+    data object Servers : Route
     data object Settings : Route
     data object About : Route
 }
@@ -21,12 +22,14 @@ val RouteSaver: androidx.compose.runtime.saveable.Saver<Route, String> =
         save = { route ->
             when (route) {
                 Route.Home -> "home"
+                Route.Servers -> "servers"
                 Route.Settings -> "settings"
                 Route.About -> "about"
             }
         },
         restore = { key ->
             when (key) {
+                "servers" -> Route.Servers
                 "settings" -> Route.Settings
                 "about" -> Route.About
                 else -> Route.Home
@@ -34,5 +37,8 @@ val RouteSaver: androidx.compose.runtime.saveable.Saver<Route, String> =
         },
     )
 
-/** The bottom sheets Home can raise (Tier 2). [None] means no sheet is open. */
-enum class HomeSheet { None, Import, Scan, ManualEdit, ShareLan, TorInfo }
+/**
+ * The bottom sheets Home can raise (Tier 2). [None] means no sheet is open. [SaveProxy] is the v6
+ * name-and-save-to-vault sheet, reachable from the manual editor and from a connected proxy.
+ */
+enum class HomeSheet { None, Import, Scan, ManualEdit, ShareLan, TorInfo, SaveProxy }

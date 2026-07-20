@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1180" height="560" viewBox="0 0 1180 560" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg3" x1="0" y1="0" x2="1180" y2="560" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0d1117"/>
+      <stop offset="1" stop-color="#161b22"/>
+    </linearGradient>
+    <marker id="arrow3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b949e"/>
+    </marker>
+  </defs>
+
+  <rect width="1180" height="560" fill="url(#bg3)"/>
+  <text x="32" y="40" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="20" font-weight="600" fill="#c9d1d9">Free public proxy list — freeproxy lane</text>
+  <text x="32" y="64" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" fill="#8b949e">TXT endpoints only, zero new dependency, SSRF-screened before anything is shown</text>
+
+  <!-- sources -->
+  <rect x="32" y="96" width="260" height="100" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="162" y="122" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="13" font-weight="600" fill="#c9d1d9">jetkai/proxy-list</text>
+  <text x="162" y="142" text-anchor="middle" font-family="Consolas, monospace" font-size="9.5" fill="#8b949e">raw.githubusercontent.com</text>
+  <text x="162" y="158" text-anchor="middle" font-family="Consolas, monospace" font-size="9.5" fill="#8b949e">proxies-socks5.txt</text>
+  <text x="162" y="174" text-anchor="middle" font-family="Consolas, monospace" font-size="9.5" fill="#8b949e">proxies-http.txt</text>
+
+  <rect x="32" y="210" width="260" height="100" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="162" y="236" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="13" font-weight="600" fill="#c9d1d9">proxifly/free-proxy-list</text>
+  <text x="162" y="256" text-anchor="middle" font-family="Consolas, monospace" font-size="9.5" fill="#8b949e">raw.githubusercontent.com</text>
+  <text x="162" y="272" text-anchor="middle" font-family="Consolas, monospace" font-size="9.5" fill="#8b949e">protocols/socks5/data.txt</text>
+  <text x="162" y="288" text-anchor="middle" font-family="Consolas, monospace" font-size="9.5" fill="#8b949e">protocols/http/data.txt</text>
+
+  <!-- Remote fetcher -->
+  <rect x="330" y="140" width="230" height="130" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="445" y="166" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="13" font-weight="600" fill="#c9d1d9">RemoteFreeProxySource</text>
+  <text x="445" y="186" text-anchor="middle" font-family="Consolas, monospace" font-size="10" fill="#8b949e">https-only, no redirects</text>
+  <text x="445" y="204" text-anchor="middle" font-family="Consolas, monospace" font-size="10" fill="#8b949e">512 KB cap · 10s timeout</text>
+  <text x="445" y="222" text-anchor="middle" font-family="Consolas, monospace" font-size="10" fill="#8b949e">parallel fetch, one bad</text>
+  <text x="445" y="238" text-anchor="middle" font-family="Consolas, monospace" font-size="10" fill="#8b949e">source is skipped, not fatal</text>
+
+  <!-- Parser / SSRF screen -->
+  <rect x="600" y="120" width="260" height="170" rx="10" fill="#2d1a1a" stroke="#f85149" stroke-width="1.5"/>
+  <text x="730" y="146" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="13" font-weight="600" fill="#ffa198">FreeProxyParser</text>
+  <text x="730" y="166" text-anchor="middle" font-family="Consolas, monospace" font-size="10" fill="#c9d1d9">drops loopback / private</text>
+  <text x="730" y="182" text-anchor="middle" font-family="Consolas, monospace" font-size="10" fill="#c9d1d9">link-local / CGNAT / reserved</text>
+  <text x="730" y="198" text-anchor="middle" font-family="Consolas, monospace" font-size="10" fill="#c9d1d9">/ malformed host or port</text>
+  <text x="730" y="216" text-anchor="middle" font-family="Consolas, monospace" font-size="10" fill="#c9d1d9">dedupes type:host:port</text>
+  <text x="730" y="234" text-anchor="middle" font-family="Consolas, monospace" font-size="10" fill="#c9d1d9">caps at 200 entries</text>
+  <text x="730" y="256" text-anchor="middle" font-family="Consolas, monospace" font-size="10.5" font-weight="600" fill="#ffa198">SSRF screen — no internal</text>
+  <text x="730" y="272" text-anchor="middle" font-family="Consolas, monospace" font-size="10.5" font-weight="600" fill="#ffa198">host ever reaches the picker</text>
+
+  <!-- Cache -->
+  <rect x="900" y="140" width="248" height="130" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="1024" y="166" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="13" font-weight="600" fill="#c9d1d9">FreeProxyCache</text>
+  <text x="1024" y="186" text-anchor="middle" font-family="Consolas, monospace" font-size="10" fill="#8b949e">TTL 6h, force refresh</text>
+  <text x="1024" y="204" text-anchor="middle" font-family="Consolas, monospace" font-size="10" fill="#8b949e">serves stale on fetch failure</text>
+  <text x="1024" y="222" text-anchor="middle" font-family="Consolas, monospace" font-size="10" fill="#8b949e">survives process death</text>
+  <text x="1024" y="238" text-anchor="middle" font-family="Consolas, monospace" font-size="10" fill="#8b949e">(prefs blob, hand-codec)</text>
+
+  <!-- UI -->
+  <rect x="330" y="360" width="818" height="140" rx="10" fill="#0d2a1f" stroke="#3fb950" stroke-width="1.5"/>
+  <text x="739" y="388" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="15" font-weight="600" fill="#7ee787">"Free servers" tab — ServersScreen</text>
+  <text x="739" y="412" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="12.5" fill="#c9d1d9">Untrusted public proxies. These are unvetted, community-listed servers.</text>
+  <text x="739" y="430" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="12.5" fill="#c9d1d9">They can be slow, go offline, log traffic, or inject content. Don't send sensitive data.</text>
+  <text x="739" y="454" text-anchor="middle" font-family="Consolas, monospace" font-size="10.5" fill="#8b949e">each row: StatusChecker liveness · "public" badge · Save to vault · Use now</text>
+  <text x="739" y="474" text-anchor="middle" font-family="Consolas, monospace" font-size="10.5" fill="#7ee787">one-tap consent gate before apply/save — same pattern as v4 import review</text>
+
+  <!-- arrows -->
+  <line x1="292" y1="146" x2="328" y2="182" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arrow3)"/>
+  <line x1="292" y1="260" x2="328" y2="220" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arrow3)"/>
+  <line x1="560" y1="205" x2="598" y2="205" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arrow3)"/>
+  <line x1="860" y1="205" x2="898" y2="205" stroke="#f85149" stroke-width="2" marker-end="url(#arrow3)"/>
+  <line x1="1024" y1="270" x2="800" y2="358" stroke="#3fb950" stroke-width="2" marker-end="url(#arrow3)"/>
+
+  <text x="32" y="524" font-family="Segoe UI, sans-serif" font-size="11" fill="#8b949e">line-oriented ip:port text, not JSON — parses with the existing ProxyParser vocabulary, zero new dependency</text>
+  <text x="32" y="542" font-family="Segoe UI, sans-serif" font-size="11" fill="#8b949e">saved free entries keep origin = FREE_PUBLIC so provenance is never forgotten</text>
+</svg>

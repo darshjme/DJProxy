@@ -76,6 +76,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     onOpenAbout: () -> Unit = {},
+    onOpenServers: () -> Unit = {},
 ) {
     val context = LocalContext.current
     var locationMatchingEnabled by remember { mutableStateOf(LocationPreference.isEnabled(context)) }
@@ -92,7 +93,31 @@ fun SettingsScreen(
             Text("Settings", style = MaterialTheme.typography.headlineSmall, color = DjColors.TextPrimary)
         }
 
-        SectionHeader("NETWORK", topPadding = 4.dp)
+        SectionHeader("PROXIES", topPadding = 4.dp)
+        GlassSurface(modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenServers)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Saved proxies", style = MaterialTheme.typography.titleMedium, color = DjColors.TextPrimary)
+                    Text(
+                        "Your proxy vault, live status, and the free public server list.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = DjColors.TextSecondary,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+                Icon(
+                    Icons.AutoMirrored.Filled.OpenInNew,
+                    contentDescription = null,
+                    tint = DjColors.TextSecondary,
+                )
+            }
+        }
+
+        SectionHeader("NETWORK")
         NetworkInfoPanel(vpnState)
 
         SectionHeader("LOCATION MATCHING")

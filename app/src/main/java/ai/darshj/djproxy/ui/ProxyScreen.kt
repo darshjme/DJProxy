@@ -76,6 +76,7 @@ import ai.darshj.djproxy.ui.components.GlassSurface
 import ai.darshj.djproxy.ui.components.StageLabel
 import ai.darshj.djproxy.ui.sheets.ImportSheet
 import ai.darshj.djproxy.ui.sheets.ManualEditSheet
+import ai.darshj.djproxy.ui.sheets.SaveProxySheet
 import ai.darshj.djproxy.ui.sheets.ScanSheet
 import ai.darshj.djproxy.ui.sheets.ShareLanSheet
 import ai.darshj.djproxy.ui.sheets.TorInfoSheet
@@ -106,9 +107,20 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
     val importPreview by viewModel.importPreview.collectAsStateWithLifecycle()
     val importChoices by viewModel.importChoices.collectAsStateWithLifecycle()
     val importBusy by viewModel.importBusy.collectAsStateWithLifecycle()
+    // v6 vault / status / free-list state.
+    val savedProxies by viewModel.savedProxies.collectAsStateWithLifecycle()
+    val defaultId by viewModel.defaultId.collectAsStateWithLifecycle()
+    val proxyStatuses by viewModel.proxyStatuses.collectAsStateWithLifecycle()
+    val freeProxies by viewModel.freeProxies.collectAsStateWithLifecycle()
+    val freeProxyBusy by viewModel.freeProxyBusy.collectAsStateWithLifecycle()
+    val freeProxyNote by viewModel.freeProxyNote.collectAsStateWithLifecycle()
+    val editing by viewModel.editing.collectAsStateWithLifecycle()
 
     var route by rememberSaveable(stateSaver = RouteSaver) { mutableStateOf<Route>(Route.Home) }
     var sheet by rememberSaveable { mutableStateOf(HomeSheet.None) }
+    // When the SaveProxy sheet is saving a FREE_PUBLIC entry (vs. the current editor config), the
+    // pending entry is held here so the sheet can seed its name + carry the public origin.
+    var pendingFreeSave by remember { mutableStateOf<ai.darshj.djproxy.freeproxy.FreeProxyEntry?>(null) }
 
     val onboardingContext = androidx.compose.ui.platform.LocalContext.current
     var showOnboarding by rememberSaveable { mutableStateOf(OnboardingState.shouldShow(onboardingContext)) }
@@ -177,7 +189,43 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
                     torActive = torActive,
                     diagnosticsAvailable = diagnosticsAvailable,
                     onOpenSettings = { route = Route.Settings },
+                    onOpenServers = { route = Route.Servers },
                     onOpenSheet = { sheet = it },
+                )
+                Route.Servers -> ServersScreen(
+                    savedProxies = savedProxies,
+                    defaultId = defaultId,
+                    statuses = proxyStatuses,
+                    free = freeProxies,
+                    freeBusy = freeProxyBusy,
+                    freeNote = freeProxyNote,
+                    onBack = { route = Route.Home },
+                    onReuseSaved = { id ->
+                        viewModel.applySaved(id)
+                        route = Route.Home
+                    },
+                    onEditSaved = { proxy ->
+                        viewModel.beginEditSaved(proxy)
+                        route = Route.Home
+                        sheet = HomeSheet.ManualEdit
+                    },
+                    onDeleteSaved = viewModel::deleteSaved,
+                    onSetDefault = viewModel::setDefault,
+                    onMoveSaved = viewModel::moveSaved,
+                    onCheckSaved = viewModel::checkSaved,
+                    onCheckAllSaved = viewModel::checkAllSaved,
+                    onCheckFree = viewModel::checkFree,
+                    onCheckAllFree = viewModel::checkAllFree,
+                    onRefreshFree = viewModel::refreshFreeProxies,
+                    onLoadFreeCache = viewModel::loadFreeProxiesFromCache,
+                    onSaveFree = { entry ->
+                        pendingFreeSave = entry
+                        sheet = HomeSheet.SaveProxy
+                    },
+                    onApplyFree = { entry ->
+                        viewModel.applyFreeProxy(entry)
+                        route = Route.Home
+                    },
                 )
                 Route.Settings -> BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                     LazyColumn(
@@ -189,6 +237,7 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
                                 vpnState = vpnState,
                                 onBack = { route = Route.Home },
                                 onOpenAbout = { route = Route.About },
+                                onOpenServers = { route = Route.Servers },
                             )
                         }
                     }
@@ -241,8 +290,40 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
                 onConfigChange = viewModel::onConfigChanged,
                 onPasteChange = viewModel::onPasteTextChanged,
                 onConnect = viewModel::onApply,
-                onDismiss = { sheet = HomeSheet.None },
+                onDismiss = {
+                    if (editing != null) viewModel.cancelEdit()
+                    sheet = HomeSheet.None
+                },
+                editingName = editing?.name,
+                onEditNameChange = viewModel::setEditingName,
+                onCommitEdit = viewModel::commitEdit,
+                // Author mode only: raise the SaveProxy sheet to name & persist the current config.
+                onSaveToVault = if (editing == null && ui.config.host.isNotBlank()) {
+                    { pendingFreeSave = null; sheet = HomeSheet.SaveProxy }
+                } else {
+                    null
+                },
             )
+            HomeSheet.SaveProxy -> {
+                val freeEntry = pendingFreeSave
+                SaveProxySheet(
+                    redacted = freeEntry?.let { "${it.type.scheme}://${it.host}:${it.port}" }
+                        ?: ui.config.redacted(),
+                    suggestedName = freeEntry?.host ?: ui.config.host,
+                    showPublicCaveat = freeEntry != null,
+                    onSave = { name ->
+                        if (freeEntry != null) {
+                            viewModel.saveFreeProxy(freeEntry, name)
+                        } else {
+                            viewModel.saveCurrent(name)
+                        }
+                    },
+                    onDismiss = {
+                        pendingFreeSave = null
+                        sheet = HomeSheet.None
+                    },
+                )
+            }
             HomeSheet.ShareLan -> ShareLanSheet(onDismiss = { sheet = HomeSheet.None })
             HomeSheet.TorInfo -> TorInfoSheet(onDismiss = { sheet = HomeSheet.None })
             HomeSheet.None -> Unit
@@ -263,6 +344,7 @@ private fun HomeContent(
     torActive: Boolean,
     diagnosticsAvailable: Boolean,
     onOpenSettings: () -> Unit,
+    onOpenServers: () -> Unit,
     onOpenSheet: (HomeSheet) -> Unit,
 ) {
     val connected = vpnState.stage == VpnStage.CONNECTED || vpnState.stage == VpnStage.RECONNECTING
@@ -435,6 +517,7 @@ private fun HomeContent(
                 onPaste = { onOpenSheet(HomeSheet.ManualEdit) },
                 onScan = { onOpenSheet(HomeSheet.Scan) },
                 onImport = { onOpenSheet(HomeSheet.Import) },
+                onOpenServers = onOpenServers,
                 torAvailable = torAvailable,
                 torEnabled = torMode,
                 torBootstrapPct = torBootstrap,
@@ -593,7 +676,7 @@ private fun AboutContent(onBack: () -> Unit) {
         }
         GlassSurface(modifier = Modifier.fillMaxWidth()) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("DJProxy", style = MaterialTheme.typography.titleMedium, color = DjColors.TextPrimary)
+                Text("DJProxy by Darshj.ai", style = MaterialTheme.typography.titleMedium, color = DjColors.TextPrimary)
                 Text(
                     "Version ${ai.darshj.djproxy.BuildConfig.VERSION_NAME} " +
                         "(build ${ai.darshj.djproxy.BuildConfig.VERSION_CODE})",

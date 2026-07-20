@@ -104,17 +104,33 @@ class LocalSocksServer(
             }
 
             // The one shared dial path: connect + handshake to the upstream proxy, protected.
+            val dialStart = System.currentTimeMillis()
             val dial = runBlocking { ProxyDialer(config, protector).connect(request.host, request.port) }
+            val dialMs = System.currentTimeMillis() - dialStart
             when (dial) {
                 is DialResult.Fail -> {
+                    // DIAGNOSTIC: the upstream proxy REJECTED this destination. Host is safe to log
+                    // (it is the target, not a credential); this is the single most useful line for
+                    // "connected but no internet".
+                    ai.darshj.djproxy.vpn.LogBus.w(
+                        "socks",
+                        "upstream FAIL ${request.host}:${request.port} after ${dialMs}ms -> ${dial.error.message}",
+                    )
                     writeReply(out, repFor(dial.error))
                     return
                 }
                 is DialResult.Ok -> {
+                    ai.darshj.djproxy.vpn.LogBus.i(
+                        "socks", "upstream OK ${request.host}:${request.port} (${dialMs}ms)",
+                    )
                     upstream = dial.socket
                     writeReply(out, REP_SUCCEEDED)
                     // A live tunnel may idle for long stretches; the handshake timeout must not reap it.
+                    // BOTH ends must clear it: the upstream socket kept the dialer's 8s ioTimeout, so a
+                    // slow proxy/origin that takes >8s to return data would trip SocketTimeout and the
+                    // flow would be torn down — the "connected but no internet" symptom on slow exits.
                     client.soTimeout = 0
+                    upstream.soTimeout = 0
                     pump(client, upstream)
                 }
             }

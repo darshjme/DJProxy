@@ -12,7 +12,8 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- outer shield facet, cyan-to-indigo diagonal gradient -->
+    <!-- outer shield facet — v4 tri-tone diagonal sweep: cyan -> violet -> indigo,
+         matching the DJProxy v4 brand ring's three-stop DjBrandTriBrush -->
     <path android:pathData="M54,23 L80,32 L80,60 L54,86 L28,60 L28,32 Z">
         <aapt:attr name="android:fillColor">
             <gradient
@@ -22,8 +23,8 @@
                 android:endX="80"
                 android:endY="86"
                 android:startColor="#22D3EE"
-                android:centerColor="#4C7EF3"
-                android:endColor="#6D5CF6" />
+                android:centerColor="#8B7BF5"
+                android:endColor="#6366F1" />
         </aapt:attr>
     </path>
 

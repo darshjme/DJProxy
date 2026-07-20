@@ -6,9 +6,63 @@ import android.location.Location
 import android.location.LocationManager
 import android.os.Build
 import android.os.SystemClock
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 /** One coordinate fix pushed into the mock providers. */
 data class Fix(val lat: Double, val lng: Double, val accuracyM: Float = 12f)
+
+/**
+ * Great-circle distance in metres between two lat/lng points (haversine). Pure; used by the self-test
+ * to decide whether a read-back fix matches the known fix we wrote.
+ */
+internal fun haversineMeters(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Double {
+    val r = 6_371_000.0
+    val dLat = Math.toRadians(lat2 - lat1)
+    val dLng = Math.toRadians(lng2 - lng1)
+    val a = sin(dLat / 2) * sin(dLat / 2) +
+        cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * sin(dLng / 2) * sin(dLng / 2)
+    return r * 2 * atan2(sqrt(a), sqrt(1 - a))
+}
+
+/** Outcome of reading a written fix back out of a provider. Honest: a refused/blocked read is [Unreadable]. */
+sealed interface ReadBack {
+    /** The provider returned a fix within tolerance of the one we wrote. */
+    data class Match(val lat: Double, val lng: Double, val distanceM: Double) : ReadBack
+    /** The provider returned a fix, but it is NOT where we wrote (something else owns the provider). */
+    data class Mismatch(val lat: Double, val lng: Double, val distanceM: Double) : ReadBack
+    /** No read was possible — the app holds no location-read permission, or the provider returned null. */
+    data object Unreadable : ReadBack
+}
+
+/**
+ * Per-provider self-test result. [accepted] is the AUTHORITATIVE signal (the platform took the write
+ * without throwing); [readBack] is a best-effort confirmation that only succeeds when the app can also
+ * read location. We never treat a non-accepting provider as working (honesty seam).
+ */
+data class ProviderProbe(val provider: String, val accepted: Boolean, val readBack: ReadBack)
+
+/** Aggregate self-test outcome across the test providers plus whether the fused mock is active. */
+data class SelfTestOutcome(val probes: List<ProviderProbe>, val fusedActive: Boolean)
+
+/**
+ * The minimal publish surface [LocationControllerImpl] depends on — an interface so the controller
+ * (and its pref-gate / capability / state-machine flow) can be unit-tested on the JVM with a fake,
+ * while production wires the real [MockLocationEngine]. Every method is side-effect-only and never
+ * throws (implementations swallow platform exceptions).
+ */
+interface MockPublisher {
+    fun ensureGrant(): Boolean
+    fun start(fix: Fix): Boolean
+    fun publish(fix: Fix): Boolean
+    fun stop()
+    /** Write a KNOWN fix and read it back to prove the providers actually took it. */
+    fun selfTest(fix: Fix): SelfTestOutcome
+    val fusedActive: Boolean
+    val activeProviders: Set<String>
+}
 
 /**
  * The mutable side effects the provider state machine needs, abstracted so the machine itself is pure
@@ -23,6 +77,13 @@ interface LocationSink {
     fun remove(name: String)
     /** Push one fix into an already-added provider; returns false if the platform rejected it. */
     fun push(name: String, fix: Fix): Boolean
+
+    /**
+     * Best-effort read-back of the platform's last fix for [name]; null if unreadable (the app holds no
+     * location-read permission, or the provider has no fix). Default null so existing sinks/fakes that
+     * do not implement read-back compile unchanged.
+     */
+    fun read(name: String): Fix? = null
 }
 
 enum class MockState { STOPPED, ACTIVE }
@@ -85,6 +146,34 @@ class MockProviderMachine(
         activeSet.clear()
         state = MockState.STOPPED
     }
+
+    /**
+     * Write [fix] to every provider and read it back to prove the write landed. Ensures the machine is
+     * started first (idempotent). Every declared provider is reported: one that was refused (not active)
+     * comes back `accepted=false, Unreadable` — we never fabricate a probe that "took". [toleranceM] is
+     * the read-back match radius (GPS test fixes are exact, but network providers may snap/round).
+     */
+    fun selfTest(fix: Fix, toleranceM: Double = 100.0): List<ProviderProbe> {
+        if (state != MockState.ACTIVE) start()
+        return providers.map { p ->
+            if (p !in activeSet) {
+                ProviderProbe(p, accepted = false, readBack = ReadBack.Unreadable)
+            } else {
+                val accepted = sink.push(p, fix)
+                ProviderProbe(p, accepted, classifyRead(sink.read(p), fix, toleranceM))
+            }
+        }
+    }
+
+    private fun classifyRead(got: Fix?, target: Fix, toleranceM: Double): ReadBack {
+        if (got == null) return ReadBack.Unreadable
+        val d = haversineMeters(got.lat, got.lng, target.lat, target.lng)
+        return if (d <= toleranceM) {
+            ReadBack.Match(got.lat, got.lng, d)
+        } else {
+            ReadBack.Mismatch(got.lat, got.lng, d)
+        }
+    }
 }
 
 /**
@@ -143,6 +232,24 @@ class AndroidLocationSink(private val lm: LocationManager) : LocationSink {
         false
     }
 
+    /**
+     * Read the provider's last fix back. This needs a location-READ permission
+     * (ACCESS_FINE/COARSE_LOCATION) which DJProxy does not declare (only the mock-location app-op is
+     * used). So on a shipping build this returns null (→ [ReadBack.Unreadable]) and the self-test
+     * relies on the authoritative write signal instead — never a fake confirmation.
+     */
+    @Suppress("MissingPermission")
+    override fun read(name: String): Fix? = try {
+        val loc = lm.getLastKnownLocation(name) ?: return null
+        Fix(loc.latitude, loc.longitude, if (loc.hasAccuracy()) loc.accuracy else 0f)
+    } catch (_: SecurityException) {
+        null
+    } catch (_: IllegalArgumentException) {
+        null
+    } catch (_: Throwable) {
+        null
+    }
+
     private fun buildLocation(provider: String, fix: Fix): Location = Location(provider).apply {
         latitude = fix.lat
         longitude = fix.lng
@@ -171,7 +278,7 @@ class AndroidLocationSink(private val lm: LocationManager) : LocationSink {
  * an app process, so on emulators we use the SAME test-provider path — which is the reliable in-app
  * mechanism there too. See [LocationSettingsPanel] for the honest capability copy.
  */
-class MockLocationEngine(context: Context) {
+class MockLocationEngine(context: Context) : MockPublisher {
 
     private val appContext = context.applicationContext
     private val lm = appContext.getSystemService(Context.LOCATION_SERVICE) as LocationManager
@@ -184,7 +291,7 @@ class MockLocationEngine(context: Context) {
      * If the mock-location app-op is missing but root is available, self-grant it via `appops`. Returns
      * true if, after any attempt, the grant is now present. Called before [start] by the controller.
      */
-    fun ensureGrant(): Boolean {
+    override fun ensureGrant(): Boolean {
         if (LocationCapabilityDetector.isMockLocationAppGranted(appContext)) return true
         if (!LocationCapabilityDetector.looksRooted()) return false
         runCatching {
@@ -196,26 +303,38 @@ class MockLocationEngine(context: Context) {
     }
 
     /** @return true if at least one provider (or fused) is live and the first fix was accepted. */
-    fun start(fix: Fix): Boolean {
+    override fun start(fix: Fix): Boolean {
         val started = machine.start()
         val pushed = if (started) machine.publish(fix) else false
         val fusedOk = fused?.start(fix) ?: false
         return pushed || fusedOk
     }
 
-    fun publish(fix: Fix): Boolean {
+    override fun publish(fix: Fix): Boolean {
         val a = machine.publish(fix)
         val b = fused?.push(fix) ?: false
         return a || b
     }
 
-    fun stop() {
+    override fun stop() {
         machine.stop()
         fused?.stop()
     }
 
-    val activeProviders: Set<String> get() = machine.active
-    val fusedActive: Boolean get() = fused?.active == true
+    /**
+     * Write a KNOWN [fix] into the test providers (and fused, if present) and read it back to prove the
+     * providers took it. The per-provider write result is authoritative; the read-back is best-effort
+     * (see [AndroidLocationSink.read]). Fused exposes no in-app read-back, so we report only whether the
+     * fused mock is active after the write.
+     */
+    override fun selfTest(fix: Fix): SelfTestOutcome {
+        val probes = machine.selfTest(fix)
+        val fusedOk = fused?.start(fix) ?: false
+        return SelfTestOutcome(probes, fusedActive = fusedOk || (fused?.active == true))
+    }
+
+    override val activeProviders: Set<String> get() = machine.active
+    override val fusedActive: Boolean get() = fused?.active == true
 }
 
 /**

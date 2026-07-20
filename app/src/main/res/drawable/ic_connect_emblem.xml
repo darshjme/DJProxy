@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DJProxy brand emblem — colored, standalone mark for use wherever the app needs its own
+  identity outside the live animated ConnectRing (About screen, share cards, notification
+  large-icon, etc). Static approximation of the ConnectRing IDLE state: a soft 6-lobe
+  squircle body with the tri-tone cyan->violet->indigo dormant ring and the power glyph core.
+  128x128dp viewport for crisp use at large sizes; scales cleanly down to small sizes too.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="128dp"
+    android:height="128dp"
+    android:viewportWidth="128"
+    android:viewportHeight="128">
+
+    <!-- ambient bloom -->
+    <path android:pathData="M64,64 m-60,0 a60,60 0 1,0 120,0 a60,60 0 1,0 -120,0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="64"
+                android:centerY="64"
+                android:gradientRadius="60"
+                android:startColor="#3922D3EE"
+                android:centerColor="#1A6366F1"
+                android:endColor="#006366F1" />
+        </aapt:attr>
+    </path>
+
+    <!-- soft glass squircle body -->
+    <path
+        android:pathData="M22,22 h84 a20,20 0 0,1 20,20 v84 a20,20 0 0,1 -20,20 h-84 a20,20 0 0,1 -20,-20 v-84 a20,20 0 0,1 20,-20 z"
+        android:fillColor="#0FEAFCFF" />
+
+    <!-- tri-tone dormant ring outline -->
+    <path
+        android:pathData="M22,22 h84 a20,20 0 0,1 20,20 v84 a20,20 0 0,1 -20,20 h-84 a20,20 0 0,1 -20,-20 v-84 a20,20 0 0,1 20,-20 z"
+        android:fillColor="#00000000"
+        android:strokeWidth="5.5">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:type="linear"
+                android:startX="22"
+                android:startY="16"
+                android:endX="106"
+                android:endY="112"
+                android:startColor="#22D3EE"
+                android:centerColor="#8B7BF5"
+                android:endColor="#6366F1" />
+        </aapt:attr>
+    </path>
+
+    <!-- power-glyph core -->
+    <path
+        android:pathData="M64,40 A21.5,21.5 0 1,0 64.05,40"
+        android:fillColor="#00000000"
+        android:strokeColor="#EAFCFF"
+        android:strokeWidth="5.5"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M64,37.5 L64,56"
+        android:fillColor="#00000000"
+        android:strokeColor="#EAFCFF"
+        android:strokeWidth="5.5"
+        android:strokeLineCap="round" />
+</vector>

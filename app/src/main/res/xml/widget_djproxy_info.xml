@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  AppWidgetProviderInfo for the DJProxy home-screen widget (surfaces lane).
+
+  updatePeriodMillis=0: the widget is driven by WidgetActions.ensureStateObserver (a process-lived
+  collector on VpnRuntime.state) and by button-tap broadcasts, so it does not need — and should not
+  pay for — the system's throttled 30-minute wake. previewLayout/targetCell* are honoured on API 31+
+  and safely ignored below. No previewImage is set (that drawable is brand-owned); the picker falls
+  back to the app icon.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="180dp"
+    android:minHeight="110dp"
+    android:targetCellWidth="3"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/widget_djproxy"
+    android:previewLayout="@layout/widget_djproxy"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen" />

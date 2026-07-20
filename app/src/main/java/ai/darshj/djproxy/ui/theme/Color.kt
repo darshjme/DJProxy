@@ -48,4 +48,18 @@ object DjColors {
     val LogInfo = Color(0xFF7DD3FC)
     val LogWarn = Color(0xFFF59E0B)
     val LogError = Color(0xFFFB7185)
+
+    // --- v4 Material 3 Expressive additive tokens (never edit the values above) ---
+
+    /** Third stop of the brand sweep: cyan -> violet -> indigo tri-tone ring. */
+    val AccentViolet = Color(0xFF8B7BF5)
+
+    /** Tor-mode identity — distinct from brand cyan and status emerald. */
+    val TorPurple = Color(0xFF9D6BFF)
+    val TorPurpleDeep = Color(0xFF6D28D9)
+
+    /** Bloom glows for the connect ring only — never used as fills. */
+    val GlowCyan = AccentCyan.copy(alpha = 0.45f)
+    val GlowEmerald = Emerald.copy(alpha = 0.45f)
+    val GlowTor = TorPurple.copy(alpha = 0.45f)
 }

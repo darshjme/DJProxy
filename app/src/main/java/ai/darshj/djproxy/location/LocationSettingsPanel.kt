@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
@@ -30,6 +31,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import ai.darshj.djproxy.vpn.seams.LocationCapability
 import ai.darshj.djproxy.vpn.seams.SettingsPanel
+import kotlinx.coroutines.launch
 
 /**
  * The location lane's own settings UI, contributed through the [SettingsPanel] seam so it renders in
@@ -93,6 +95,76 @@ class LocationSettingsPanel(
 
             Spacer(Modifier.height(12.dp))
             ManualOverride(controller, capability != LocationCapability.UNAVAILABLE)
+
+            Spacer(Modifier.height(12.dp))
+            SelfTest(controller)
+        }
+    }
+
+    /**
+     * The "Test mock location" self-test (task): writes a known fix (Eiffel Tower) into the providers
+     * and reads it back, then restores whatever was live, reporting the HONEST result — write-confirmed,
+     * read-back-confirmed, or an honest "can't run / refused". Never blocks the UI thread.
+     */
+    @Composable
+    private fun SelfTest(controller: LocationControllerImpl) {
+        val scope = rememberCoroutineScope()
+        var running by remember { mutableStateOf(false) }
+        var report by remember { mutableStateOf<ai.darshj.djproxy.location.SelfTestReport?>(null) }
+
+        Text(
+            text = "Self-test",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "Writes a known fix (Eiffel Tower) into the GPS + network providers and reads it back to " +
+                "confirm the spoof actually took. Restores your location afterward.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(6.dp))
+        Button(
+            enabled = !running,
+            onClick = {
+                running = true
+                scope.launch {
+                    report = controller.runSelfTest()
+                    running = false
+                }
+            },
+        ) { Text(if (running) "Testing…" else "Test mock location") }
+
+        report?.let { r ->
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = r.summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = when {
+                    !r.ran -> MaterialTheme.colorScheme.onSurfaceVariant
+                    r.passed -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.error
+                },
+            )
+            if (r.ran && r.probes.isNotEmpty()) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = r.probes.joinToString("\n") { p ->
+                        val write = if (p.accepted) "accepted" else "refused"
+                        val read = when (val rb = p.readBack) {
+                            is ai.darshj.djproxy.location.ReadBack.Match ->
+                                "read back ✓ (${"%.0f".format(rb.distanceM)} m)"
+                            is ai.darshj.djproxy.location.ReadBack.Mismatch ->
+                                "read back ✗ (${"%.0f".format(rb.distanceM)} m off)"
+                            ai.darshj.djproxy.location.ReadBack.Unreadable -> "read back n/a"
+                        }
+                        "• ${p.provider}: $write, $read"
+                    } + if (r.fusedActive) "\n• fused: active" else "",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 

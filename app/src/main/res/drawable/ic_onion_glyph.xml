@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Tor onion-layers glyph — colored, brand-owned decorative mark for the Tor identity
+  (available for the tor lane's TorInfoSheet / TorSettingsPanel to reference by @drawable id;
+  ui/tor lanes wire it into layout, brand only supplies the resource).
+  Uses the Tor purple palette (TorPurple #9D6BFF / TorPurpleDeep #6D28D9) — matches
+  ui/theme/Color.kt's Tor tokens without brand needing to touch res/values.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="96dp"
+    android:height="96dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+
+    <!-- ambient purple bloom -->
+    <path android:pathData="M48,48 m-46,0 a46,46 0 1,0 92,0 a46,46 0 1,0 -92,0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="48"
+                android:centerY="48"
+                android:gradientRadius="46"
+                android:startColor="#2E9D6BFF"
+                android:endColor="#009D6BFF" />
+        </aapt:attr>
+    </path>
+
+    <!-- three concentric onion-routing layers, deepest to lightest -->
+    <path
+        android:pathData="M48,48 m-34,0 a34,34 0 1,0 68,0 a34,34 0 1,0 -68,0"
+        android:fillColor="#00000000"
+        android:strokeColor="#6D28D9"
+        android:strokeWidth="3.4"
+        android:strokeAlpha="0.55" />
+    <path
+        android:pathData="M48,48 m-22,0 a22,22 0 1,0 44,0 a22,22 0 1,0 -44,0"
+        android:fillColor="#00000000"
+        android:strokeColor="#9D6BFF"
+        android:strokeWidth="3.8"
+        android:strokeAlpha="0.8" />
+    <path
+        android:pathData="M48,48 m-11,0 a11,11 0 1,0 22,0 a11,11 0 1,0 -22,0"
+        android:fillColor="#00000000"
+        android:strokeColor="#C9B4FF"
+        android:strokeWidth="4.2"
+        android:strokeAlpha="0.95" />
+
+    <!-- hidden-service core -->
+    <path android:pathData="M48,48 m-4,0 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="48"
+                android:centerY="48"
+                android:gradientRadius="4"
+                android:startColor="#FFFFFF"
+                android:endColor="#E4D6FF" />
+        </aapt:attr>
+    </path>
+</vector>

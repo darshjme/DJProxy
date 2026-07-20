@@ -1,5 +1,10 @@
 package ai.darshj.djproxy.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -34,6 +39,23 @@ import ai.darshj.djproxy.vpn.HealthReport
  * Colour language: cyan = healthy/expected, amber = degraded (advisory only), grey = not yet
  * checked. Every chip also carries a word, never colour alone, per the app's accessibility bar.
  */
+/**
+ * ui-lane entry-animation wrapper (§1.6): the advisory chips cascade in (fade + scale-up) the moment
+ * core publishes a [HealthReport], and animate out when it clears. The underlying [AdvisoryChipsRow]
+ * is reused verbatim — only its appearance is wrapped here, so the advisory/blocking wall stays
+ * intact and this never becomes a gate.
+ */
+@Composable
+fun AnimatedAdvisoryChips(health: HealthReport?, modifier: Modifier = Modifier) {
+    AnimatedVisibility(
+        visible = health != null,
+        enter = fadeIn(tween(300)) + scaleIn(initialScale = 0.85f, animationSpec = tween(300)),
+        exit = fadeOut(tween(150)),
+    ) {
+        AdvisoryChipsRow(health = health, modifier = modifier)
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AdvisoryChipsRow(health: HealthReport?, modifier: Modifier = Modifier) {

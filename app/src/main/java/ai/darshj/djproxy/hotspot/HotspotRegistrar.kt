@@ -35,6 +35,9 @@ class HotspotRegistrar : Initializer<Unit> {
             FeatureRegistry.hotspotController = controller
             FeatureRegistry.addSettingsPanel(HotspotSettingsPanel(controller))
             installed = true
+            // Reconcile any stale root redirect left by a crashed/force-stopped prior session (no-op on
+            // unrooted devices; runs off-thread and never throws).
+            runCatching { RootRedirector().reconcileStaleRules() }
             LogBus.i("Hotspot", "Hotspot lane registered (LAN proxy + root transparent)")
         }
     }

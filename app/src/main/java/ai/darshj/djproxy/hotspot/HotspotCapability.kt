@@ -90,8 +90,9 @@ object HotspotCapability {
 
     /** Interface-preference scoring, split out so the ordering is unit-tested without real NICs. */
     fun scoreInterface(name: String, siteLocal: Boolean): Int = when {
-        // Soft-AP / Wi-Fi hotspot interfaces — the device is literally the router.
-        name.startsWith("ap") || name.contains("swlan") || name == "wlan1" -> 100
+        // Soft-AP / Wi-Fi hotspot interfaces — the device is literally the router. OEMs name these
+        // ap0 / swlan0 / softap0 / wlan1; all mean "this phone is the access point for its clients".
+        name.startsWith("ap") || name.contains("swlan") || name.contains("softap") || name == "wlan1" -> 100
         // USB / Bluetooth / generic tethering interfaces.
         name.startsWith("rndis") || name.startsWith("usb") ||
             name.contains("tether") || name.contains("bt-pan") -> 90

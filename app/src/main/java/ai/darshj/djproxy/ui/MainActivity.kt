@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
@@ -16,11 +17,22 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.lifecycle.lifecycleScope
 import ai.darshj.djproxy.ui.theme.DJProxyTheme
 import ai.darshj.djproxy.vpn.DjVpnService
 import ai.darshj.djproxy.vpn.FeatureRegistry
 import ai.darshj.djproxy.vpn.LogBus
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * The one screen's host. Owns the two pieces of platform ceremony the product needs before the
@@ -51,6 +63,12 @@ class MainActivity : ComponentActivity() {
      *  enough that the brand art would never actually be seen. Hold the system splash on screen
      *  for a short, deliberate beat so the DJProxy mark registers, then release it. */
     private var keepSplashOnScreen = true
+
+    /** Flips true the moment the system splash has been released, so the Compose [SplashHandoff]
+     *  begins its branded ring/wordmark/attribution sequence AFTER the system emblem lifts — never
+     *  hidden underneath it (the §10 hand-off was previously torn down behind the opaque system
+     *  splash and was effectively invisible on a fast device). */
+    private val systemSplashGone = mutableStateOf(false)
 
     private val vpnConsentLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -91,17 +109,116 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         splashScreen.setKeepOnScreenCondition { keepSplashOnScreen }
-        Handler(Looper.getMainLooper()).postDelayed({ keepSplashOnScreen = false }, SPLASH_HOLD_MS)
+        Handler(Looper.getMainLooper()).postDelayed({
+            keepSplashOnScreen = false
+            // Hand off to the Compose branded sequence the instant the system splash releases.
+            systemSplashGone.value = true
+        }, SPLASH_HOLD_MS)
 
         requestNotificationPermissionIfNeeded()
         requestVpnConsent()
 
+        // Ingest any launch intent (deep link / share / .ovpn open) — parses and raises the Import
+        // sheet with the target for one confirmation tap; never auto-connects silently (§11).
+        handleIntent(intent)
+
         setContent {
             DJProxyTheme {
-                ProxyScreen(viewModel)
+                // The branded Compose hand-off (§10) plays over the app for its first ~900 ms so the
+                // DJProxy mark registers, then cross-fades away into the live control surface. Saved
+                // so it does not replay across a configuration change.
+                var showBrandSplash by rememberSaveable { mutableStateOf(true) }
+                Box(modifier = Modifier.fillMaxSize()) {
+                    ProxyScreen(viewModel)
+                    if (showBrandSplash) {
+                        // start gated on the system splash having lifted, so the branded ring/wordmark/
+                        // attribution actually plays on screen instead of under the system emblem (§10).
+                        SplashHandoff(
+                            onFinished = { showBrandSplash = false },
+                            start = systemSplashGone.value,
+                        )
+                    }
+                }
             }
         }
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    /**
+     * Extracts a raw proxy string from a launch/redelivered intent and routes it through the single
+     * [ProxyViewModel.ingestExternal] facade. Wrapped in runCatching so a malformed intent can never
+     * crash the activity, and never auto-connects from an untrusted SEND/VIEW without the user's
+     * explicit confirmation tap in the Import sheet (only `djproxy://connect` pre-emphasises Connect).
+     */
+    private fun handleIntent(intent: Intent?) {
+        intent ?: return
+        runCatching {
+            when (intent.action) {
+                Intent.ACTION_SEND -> {
+                    intent.getStringExtra(Intent.EXTRA_TEXT)?.let { text ->
+                        // Untrusted external share → parse locally only, never a silent network fetch.
+                        viewModel.ingestExternal(text, autoConnect = false, allowNetwork = false)
+                    }
+                }
+                Intent.ACTION_VIEW -> {
+                    val data = intent.data ?: return@runCatching
+                    when (data.scheme?.lowercase()) {
+                        "djproxy" -> {
+                            val payload = runCatching {
+                                data.getQueryParameter("url") ?: data.getQueryParameter("uri")
+                            }.getOrNull() ?: data.toString()
+                            // A deep link is untrusted: no unconsented subscription GET (allowNetwork=false).
+                            // autoConnect only pre-emphasises the confirm button; it never bypasses the tap.
+                            viewModel.ingestExternal(
+                                payload,
+                                autoConnect = data.host.equals("connect", true),
+                                allowNetwork = false,
+                            )
+                        }
+                        "content", "file" -> {
+                            // Read the (attacker-supplyable) stream OFF the main thread and hard-capped,
+                            // so a huge/slow content:// provider cannot OOM or ANR the activity on open.
+                            lifecycleScope.launch {
+                                val text = withContext(Dispatchers.IO) { readTextFromUri(data) }
+                                if (text != null) {
+                                    viewModel.ingestExternal(text, autoConnect = false, allowNetwork = false)
+                                }
+                            }
+                        }
+                        else -> viewModel.ingestExternal(data.toString(), autoConnect = false, allowNetwork = false)
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Reads a `content://` / `file://` import stream, bounded by [MAX_IMPORT_BYTES]. A `.ovpn`/proxy
+     * import is a few hundred bytes; anything past the cap is a hostile or accidental oversized stream,
+     * so we abort with null rather than growing a String until OutOfMemoryError. Runs on an IO
+     * dispatcher (see caller) — never on the main thread.
+     */
+    private fun readTextFromUri(uri: Uri): String? = runCatching {
+        contentResolver.openInputStream(uri)?.use { input ->
+            val reader = input.bufferedReader()
+            val sb = StringBuilder()
+            val buf = CharArray(8192)
+            var total = 0
+            while (true) {
+                val n = reader.read(buf)
+                if (n < 0) break
+                total += n
+                if (total > MAX_IMPORT_BYTES) return@runCatching null
+                sb.append(buf, 0, n)
+            }
+            sb.toString()
+        }
+    }.getOrNull()
 
     override fun onDestroy() {
         if (bound) {
@@ -154,5 +271,9 @@ class MainActivity : ComponentActivity() {
         /** Deliberate branded hold so the DJProxy splash emblem is actually seen, not just
          *  flashed for a frame. Short enough to never feel like a stall. */
         const val SPLASH_HOLD_MS = 700L
+
+        /** Hard cap on an imported config stream (a .ovpn / proxy line is tiny). Mirrors
+         *  SubscriptionFetcher's MAX_BYTES intent — abort rather than OOM on a hostile stream. */
+        const val MAX_IMPORT_BYTES = 256 * 1024
     }
 }

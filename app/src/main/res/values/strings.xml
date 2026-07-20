@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">DJProxy</string>
+    <string name="tile_connect_label">DJProxy</string>
+    <string name="tile_tor_label">Tor</string>
 </resources>

@@ -25,7 +25,7 @@ import ai.darshj.djproxy.ui.theme.DjColors
 @Composable
 fun GlassSurface(
     modifier: Modifier = Modifier,
-    cornerRadius: Dp = 24.dp,
+    cornerRadius: Dp = 28.dp,
     borderBrush: Brush = Brush.linearGradient(
         listOf(DjColors.GlassBorderTop, DjColors.GlassBorderBottom),
     ),

@@ -1,5 +1,8 @@
 package ai.darshj.djproxy.core
 
+import ai.darshj.djproxy.config.ImportResult
+import ai.darshj.djproxy.config.UriConfigParser
+
 /**
  * Parses the many shapes proxy credentials get pasted in.
  *
@@ -30,10 +33,11 @@ object ProxyParser {
         if (schemeIdx > 0) {
             val scheme = rest.substring(0, schemeIdx)
             type = ProxyType.fromScheme(scheme)
-                ?: return Result.Err(
-                    "Unknown proxy scheme \"$scheme\"",
-                    "Use socks5:// or http:// — those are the two DJProxy speaks.",
-                )
+                // A scheme this parser does not itself speak (ss://, vmess://, djproxy://, …) is handed
+                // to the richer config.UriConfigParser instead of a blunt error (DESIGN_V4 §5). That
+                // parser returns a real ProxyConfig where a SOCKS/HTTP mapping exists, or a named typed
+                // error which we surface verbatim.
+                ?: return delegateUri(input)
             rest = rest.substring(schemeIdx + 3)
         }
         rest = rest.trim().trimEnd('/')
@@ -120,4 +124,18 @@ object ProxyParser {
         if (i <= 0 || i == s.length - 1) return null
         return s.substring(0, i) to s.substring(i + 1)
     }
+
+    /**
+     * Bridge a scheme this parser does not natively speak to [UriConfigParser] and flatten its richer
+     * [ImportResult] back onto the [Result] this parser's callers expect. A single URI never yields
+     * [ImportResult.Many]; if one somehow does we surface the first entry so the caller still connects.
+     */
+    private fun delegateUri(uri: String): Result =
+        when (val r = UriConfigParser.parse(uri)) {
+            is ImportResult.Single -> Result.Ok(r.config)
+            is ImportResult.Rejected -> Result.Err(r.error.message, r.error.hint)
+            is ImportResult.Many -> r.configs.firstOrNull()
+                ?.let { Result.Ok(it.config) }
+                ?: Result.Err("No usable proxy in that link")
+        }
 }

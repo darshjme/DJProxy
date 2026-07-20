@@ -2,6 +2,7 @@ package ai.darshj.djproxy.location
 
 import android.content.Context
 import androidx.startup.Initializer
+import ai.darshj.djproxy.ui.LocationPreference
 import ai.darshj.djproxy.vpn.FeatureRegistry
 import ai.darshj.djproxy.vpn.LogBus
 import ai.darshj.djproxy.vpn.seams.LocationController
@@ -31,7 +32,11 @@ class LocationRegistrar : Initializer<LocationController> {
         fun attach(appContext: Context): LocationController {
             installed?.let { return it }
             val engine = MockLocationEngine(appContext)
-            val controller = LocationControllerImpl(appContext = appContext, engine = engine)
+            val controller = LocationControllerImpl(
+                engine = engine,
+                optedIn = { LocationPreference.isEnabled(appContext) },
+                capabilityProvider = { LocationCapabilityDetector.detect(appContext) },
+            )
             FeatureRegistry.locationController = controller
             FeatureRegistry.addSettingsPanel(LocationSettingsPanel(controller, appContext))
             // Publish an honest capability snapshot immediately so settings is correct on first open.

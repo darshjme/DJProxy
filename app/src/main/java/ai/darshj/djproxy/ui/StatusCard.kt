@@ -1,6 +1,8 @@
 package ai.darshj.djproxy.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -27,6 +29,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import ai.darshj.djproxy.ui.components.GlassSurface
 import ai.darshj.djproxy.ui.theme.DjColors
+import ai.darshj.djproxy.ui.theme.DjStatFigure
 import ai.darshj.djproxy.vpn.TunnelStats
 import ai.darshj.djproxy.vpn.VpnStage
 import ai.darshj.djproxy.vpn.VpnState
@@ -67,7 +70,7 @@ private fun formatUptime(sinceMs: Long, nowMs: Long): String {
  * owns state. Health is advisory-only (§2): a DEGRADED chip never hides this card or the stage.
  */
 @Composable
-fun StatusCard(state: VpnState, modifier: Modifier = Modifier) {
+fun StatusCard(state: VpnState, modifier: Modifier = Modifier, showChips: Boolean = true) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(state.stage, state.connectedSinceMs) {
         while (state.stage == VpnStage.CONNECTED || state.stage == VpnStage.RECONNECTING) {
@@ -112,7 +115,10 @@ fun StatusCard(state: VpnState, modifier: Modifier = Modifier) {
             Spacer(Modifier.height(16.dp))
             StatsGrid(state.stats)
 
-            if (state.stage == VpnStage.CONNECTED || state.stage == VpnStage.RECONNECTING) {
+            // Chips are hosted at the Home hero (AnimatedAdvisoryChips); suppress them here when this
+            // card is embedded in the Details disclosure so a connected user does not see the same
+            // IPv6/UDP/DNS chip set rendered twice on one scroll.
+            if (showChips && (state.stage == VpnStage.CONNECTED || state.stage == VpnStage.RECONNECTING)) {
                 Spacer(Modifier.height(16.dp))
                 AdvisoryChipsRow(health = state.health)
             }
@@ -120,20 +126,35 @@ fun StatusCard(state: VpnState, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * Animated counters (§1.6): byte totals and connection counts roll to their new value rather than
+ * snapping. Bytes animate through a Float (display-precision is fine for a live meter); connection
+ * counts animate as Ints. Every figure renders in the tabular-monospace [DjStatFigure] so digit
+ * widths never jitter mid-roll.
+ */
 @Composable
 private fun StatsGrid(stats: TunnelStats) {
+    val up by animateFloatAsState(stats.bytesUp.toFloat(), tween(650), label = "bytes-up")
+    val down by animateFloatAsState(stats.bytesDown.toFloat(), tween(650), label = "bytes-down")
+    val active by animateIntAsState(stats.activeConnections, tween(450), label = "active-conns")
+    val total by animateIntAsState(stats.totalConnections.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), tween(450), label = "total-conns")
+
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        StatCell("Upload", formatBytes(stats.bytesUp))
-        StatCell("Download", formatBytes(stats.bytesDown))
-        StatCell("Active", stats.activeConnections.toString())
-        StatCell("Total", stats.totalConnections.toString())
+        StatCell("Upload", formatBytes(up.toLong()))
+        StatCell("Download", formatBytes(down.toLong()))
+        StatCell("Active", active.toString())
+        StatCell("Total", total.toString())
     }
 }
 
 @Composable
 private fun StatCell(label: String, value: String) {
     Column {
-        Text(value, style = MaterialTheme.typography.titleMedium, color = DjColors.TextPrimary)
+        Text(
+            value,
+            style = MaterialTheme.typography.titleMedium.merge(DjStatFigure),
+            color = DjColors.TextPrimary,
+        )
         Text(label, style = MaterialTheme.typography.bodySmall, color = DjColors.TextTertiary)
     }
 }

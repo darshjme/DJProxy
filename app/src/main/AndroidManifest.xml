@@ -24,6 +24,14 @@
         android:usesPermissionFlags="neverForLocation"
         tools:targetApi="33" />
 
+    <!-- qr lane (DESIGN_V4 §platform-8): CameraX-backed QR scanner (import lane) + encoder
+         (hotspot ShareLan). android.hardware.camera is declared non-required so this remains a
+         universal build for camera-less devices/emulators; CameraPermission.kt gates the runtime
+         grant before QrCameraScanner ever binds a CameraX session. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
     <application
         android:name=".DjProxyApp"
         android:allowBackup="false"
@@ -41,6 +49,59 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!--
+              ui seam §7 / config seam: djproxy://import|connect deep links (BROWSABLE), consumed by
+              MainActivity -> viewModel.ingestExternal(raw, autoConnect). A custom scheme needs no
+              android:autoVerify / Digital Asset Links, unlike https app links.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="djproxy" android:host="import" />
+                <data android:scheme="djproxy" android:host="connect" />
+            </intent-filter>
+
+            <!--
+              config seam: bare socks5:// / ss:// (SIP002) URIs opened from a browser, file manager,
+              or another app's "open with" chooser. Routed through the same ingestExternal path.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="socks5" />
+                <data android:scheme="ss" />
+            </intent-filter>
+
+            <!--
+              platform §8: share-target for a config URI or subscription link shared as plain text
+              from another app (browser share sheet, messaging app, etc). MainActivity reads
+              EXTRA_TEXT and forwards to ingestExternal(raw, autoConnect = false) — never
+              auto-connects from an untrusted SEND without a confirmation tap per the consent gate.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+
+            <!--
+              config seam / OvpnParser: opening a .ovpn file (content:// from a document provider,
+              or file:// from a legacy file manager). DJProxy is a SOCKS/HTTP proxy app, not an
+              OpenVPN client — OvpnParser extracts only 'http-proxy'/'socks-proxy'/'remote' directives
+              and honestly rejects files with no proxy directive.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" android:mimeType="application/x-openvpn-profile" />
+                <data android:scheme="file" android:mimeType="application/x-openvpn-profile" />
+                <data android:scheme="file" android:pathPattern=".*\\.ovpn" />
+                <data android:scheme="content" android:pathPattern=".*\\.ovpn" />
             </intent-filter>
         </activity>
 
@@ -73,6 +134,80 @@
         </service>
 
         <!--
+          tor lane (DESIGN_V4): embedded Tor bootstrap, run as its own foreground service so the
+          Tor process survives Doze/background exactly like DjVpnService/EngineService. Exposes a
+          local SOCKS5 on 127.0.0.1:9050 that TorGateway.controller.proxyConfig() feeds into the
+          EXISTING VpnController.apply(ProxyConfig) — zero core edits. The vendored
+          org.torproject.jni.TorService (declared inside the info.guardianproject:tor-android AAR
+          itself, merged automatically) is the actual Tor daemon host; ai.darshj.djproxy.tor.TorService
+          is this app's own FGS wrapper/lifecycle owner around OnionProxyManager/TorControllerImpl.
+        -->
+        <service
+            android:name=".tor.TorService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Tor onion routing" />
+        </service>
+
+        <!--
+          surfaces lane: Quick Settings tiles. Both extend TileService (API 24+); on API 21-23 the
+          android.service.quicksettings.action.QS_TILE action is simply never dispatched by the
+          platform, so declaring the <service> at minSdk 21 is safe — the class itself guards any
+          API 24+ call (Build.VERSION.SDK_INT checks per TileService API24+ guarded note).
+        -->
+        <service
+            android:name=".surfaces.ConnectTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_connect"
+            android:label="@string/tile_connect_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data android:name="android.service.quicksettings.ACTIVE_TILE" android:value="true" />
+        </service>
+
+        <service
+            android:name=".surfaces.TorTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_tor"
+            android:label="@string/tile_tor_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data android:name="android.service.quicksettings.ACTIVE_TILE" android:value="true" />
+        </service>
+
+        <!--
+          surfaces lane: classic RemoteViews home-screen widget (no glance/compose-glance dep,
+          minSdk21-safe). DjWidgetProvider reads VpnRuntime.state/currentConfig and the same
+          DjVpnService start path via WidgetActions' PendingIntents; it never routes without prior
+          VPN consent (a tap always launches MainActivity first if consent/config is missing).
+
+          SECURITY (v4 fix): android:exported="false". onReceive() dispatches privileged VPN-control
+          actions (TOGGLE / STOP / TOR_TOGGLE) — WidgetActions.stop() tears the whole tunnel down with
+          NO consent gate. An exported receiver let any zero-permission app fire an explicit STOP intent
+          and kill the proxy (a remote deanonymization / kill-switch bypass). The AppWidget host is a
+          privileged system component and still delivers APPWIDGET_UPDATE to a non-exported provider, and
+          the widget's own button PendingIntents (created by this app via getBroadcast) are delivered on
+          the creator token regardless of export — so the custom actions now reach onReceive ONLY from
+          our own PendingIntents, never from a foreign process.
+        -->
+        <receiver
+            android:name=".surfaces.DjWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_djproxy_info" />
+        </receiver>
+
+        <!--
           Feature-lane wiring seam (DESIGN_V3 §9.1). Core defines FeatureRegistry holders; each
           feature lane ships its own androidx.startup Initializer (a *Registrar class in its own
           package) that sets one holder / adds one settings panel at process start, with zero edits
@@ -97,6 +232,9 @@
                 android:value="androidx.startup" />
             <meta-data
                 android:name="ai.darshj.djproxy.diag.DiagnosticsRegistrar"
+                android:value="androidx.startup" />
+            <meta-data
+                android:name="ai.darshj.djproxy.tor.TorRegistrar"
                 android:value="androidx.startup" />
         </provider>
 

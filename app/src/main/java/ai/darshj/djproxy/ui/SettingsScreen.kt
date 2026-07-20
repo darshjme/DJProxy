@@ -69,7 +69,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
  * `VpnState.health`) that core/compat expose publicly.
  */
 @Composable
-fun SettingsScreen(vpnState: VpnState, onBack: () -> Unit, modifier: Modifier = Modifier) {
+fun SettingsScreen(
+    vpnState: VpnState,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    onOpenAbout: () -> Unit = {},
+) {
     val context = LocalContext.current
     var locationMatchingEnabled by remember { mutableStateOf(LocationPreference.isEnabled(context)) }
 
@@ -100,6 +105,30 @@ fun SettingsScreen(vpnState: VpnState, onBack: () -> Unit, modifier: Modifier = 
             Spacer(Modifier.height(16.dp))
         }
         FeaturePanelsHost(locationMatchingEnabled = locationMatchingEnabled)
+        Spacer(Modifier.height(16.dp))
+        GlassSurface(modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenAbout)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("About DJProxy", style = MaterialTheme.typography.titleMedium, color = DjColors.TextPrimary)
+                    Text(
+                        "Version, licenses, and source code.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = DjColors.TextSecondary,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+                Icon(
+                    Icons.AutoMirrored.Filled.OpenInNew,
+                    contentDescription = null,
+                    tint = DjColors.TextSecondary,
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
     }
 }
 

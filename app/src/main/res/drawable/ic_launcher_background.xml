@@ -38,4 +38,20 @@
                 android:endColor="#00000000" />
         </aapt:attr>
     </path>
+
+    <!-- v4: subtle violet undertone in the lower-left quadrant — the tri-tone sweep
+         (cyan -> violet -> indigo) now carried by the foreground shield reads back here
+         as a second, quieter glow so the whole mark feels like one coherent light source. -->
+    <path android:pathData="M26,82 a26,26 0 1,0 0.01,0 z"
+        android:fillAlpha="0.09">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="26"
+                android:centerY="82"
+                android:gradientRadius="26"
+                android:startColor="#8B7BF5"
+                android:endColor="#00000000" />
+        </aapt:attr>
+    </path>
 </vector>

@@ -124,6 +124,35 @@ dependencies {
     // file so it is the one place this optional dep is declared; location lane never edits build files.
     implementation("com.google.android.gms:play-services-location:21.3.0")
 
+    // qr lane: CameraX preview/analysis for QrCameraScanner + a de-Googled, offline-capable QR
+    // decode/encode path (ZXing core only — NO ML Kit / Play Services barcode scanning, per
+    // DESIGN_V4 platform §8). camera-view supplies PreviewView; camera-lifecycle binds to a
+    // LifecycleOwner so the qr lane never manages the CameraX session lifecycle by hand.
+    implementation("androidx.camera:camera-core:1.4.1")
+    implementation("androidx.camera:camera-camera2:1.4.1")
+    implementation("androidx.camera:camera-lifecycle:1.4.1")
+    implementation("androidx.camera:camera-view:1.4.1")
+    implementation("com.google.zxing:core:3.5.3")
+
+    // ui lane: androidx.graphics-shapes backs ConnectRing's shape-morphing squircle (Material 3
+    // Expressive "large expressive shape as container" motion — DESIGN_V4 UI research).
+    implementation("androidx.graphics:graphics-shapes:1.0.1")
+
+    // tor lane: embedded Tor (guardianproject tor-android) + jtorctl control-port client, wired
+    // through tor.TorGateway/TorController -> the EXISTING VpnController.apply(socks5://127.0.0.1:9050)
+    // seam, zero core edits. DESIGN_V4 names 0.4.8.7, but that tag is only published on the
+    // guardianproject gpmaven repo (https://raw.githubusercontent.com/guardianproject/gpmaven/master),
+    // which is NOT resolvable here: settings.gradle.kts pins
+    // repositoriesMode = FAIL_ON_PROJECT_REPOS with only google()+mavenCentral() declared, and
+    // adding a repository is outside this lane's ownership (platform owns only this file +
+    // AndroidManifest.xml, not settings.gradle.kts). 0.4.7.14 is the newest tor-android build
+    // actually published to Maven Central (verified via search.maven.org) and its bundled
+    // AndroidManifest declares minSdkVersion 16, targetSdkVersion 33 — fully compatible with this
+    // app's minSdk 21/targetSdk 35, so no <uses-sdk tools:overrideLibrary> is needed. jtorctl
+    // 0.4.5.7 (the version DESIGN_V4 names) IS on Maven Central verbatim.
+    implementation("info.guardianproject:tor-android:0.4.7.14")
+    implementation("info.guardianproject:jtorctl:0.4.5.7")
+
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
 }

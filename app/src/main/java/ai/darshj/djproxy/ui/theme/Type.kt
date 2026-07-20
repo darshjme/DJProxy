@@ -9,6 +9,13 @@ import androidx.compose.ui.unit.sp
 /** Considered type scale for a premium single-screen product: tight tracking on display sizes,
  *  relaxed on body copy, monospace reserved for the log view (set locally there). */
 val DjTypography = Typography(
+    displayMedium = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Bold,
+        fontSize = 40.sp,
+        lineHeight = 46.sp,
+        letterSpacing = (-0.5).sp,
+    ),
     displaySmall = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Bold,
@@ -83,3 +90,16 @@ val DjTypography = Typography(
 
 /** Monospace face for the live log — kept out of the type scale since nothing else uses it. */
 val DjMono = FontFamily.Monospace
+
+/**
+ * Tabular-figure monospace style for animated stat counters (bytes up/down, uptime, active conns):
+ * `tnum` locks every digit to the same advance width so the numbers roll without horizontal jitter
+ * while [androidx.compose.animation.core.animateIntAsState] counts them up. Size/weight are set by
+ * the caller via `.merge()` / `style = ...`; this only carries the font + feature setting.
+ */
+val DjStatFigure = TextStyle(
+    fontFamily = FontFamily.Monospace,
+    fontWeight = FontWeight.SemiBold,
+    fontFeatureSettings = "tnum",
+    letterSpacing = 0.sp,
+)

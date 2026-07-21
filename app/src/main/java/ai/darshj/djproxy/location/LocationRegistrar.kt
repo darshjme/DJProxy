@@ -40,7 +40,13 @@ class LocationRegistrar : Initializer<LocationController> {
             FeatureRegistry.locationController = controller
             FeatureRegistry.addSettingsPanel(LocationSettingsPanel(controller, appContext))
             // Publish an honest capability snapshot immediately so settings is correct on first open.
-            controller.refreshCapability(appContext)
+            // GUARDED: this queries LocationManager / Settings.Secure, which some emulators (LDPlayer &
+            // co.) stub or back with a modified provider that can throw. Since this Initializer runs in
+            // InitializationProvider BEFORE Application.onCreate, an unguarded throw here crashes the
+            // process cold (before any UI). A capability read failing is non-fatal — the snapshot just
+            // refreshes on first settings open instead.
+            runCatching { controller.refreshCapability(appContext) }
+                .onFailure { LogBus.w("Location", "initial capability probe skipped: ${it.message}") }
             installed = controller
             LogBus.i("Location", "Location lane registered (exit-geo + mock providers)")
             return controller

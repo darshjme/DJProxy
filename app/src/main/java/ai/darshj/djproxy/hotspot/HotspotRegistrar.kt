@@ -17,7 +17,14 @@ import ai.darshj.djproxy.vpn.LogBus
 class HotspotRegistrar : Initializer<Unit> {
 
     override fun create(context: Context) {
-        attach(context.applicationContext)
+        // Cold-init hardening: this runs in InitializationProvider BEFORE Application.onCreate, so a
+        // throw crashes the process before any UI (a "crash instantly on tapping the icon" with no
+        // report). HotspotControllerImpl builds its capability snapshot at construction, which queries
+        // system services that can be absent/stubbed on some emulators — so the whole attach is
+        // guarded. On failure the hotspot lane is simply absent this run (its Gateway stays null → the
+        // feature is hidden) and the app still launches.
+        runCatching { attach(context.applicationContext) }
+            .onFailure { LogBus.e("Hotspot", "lane init skipped (device init fault): ${it.message}") }
     }
 
     // No dependency on other Initializers; the DNS default etc. are already core-shipped.

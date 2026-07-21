@@ -17,7 +17,9 @@ import androidx.startup.Initializer
 class DiagnosticsRegistrar : Initializer<Unit> {
 
     override fun create(context: Context) {
-        register(context.applicationContext)
+        // Runs in InitializationProvider before Application.onCreate — guard so a sink/panel wiring
+        // fault cannot crash the process cold.
+        runCatching { register(context.applicationContext) }
     }
 
     override fun dependencies(): List<Class<out Initializer<*>>> = emptyList()

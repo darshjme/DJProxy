@@ -38,8 +38,13 @@ class TorRegistrar : Initializer<TorController> {
                 manager = manager,
                 foreground = { on -> if (on) TorService.start(appContext) else TorService.stop(appContext) },
             )
-            TorGateway.controller = controller
-            FeatureRegistry.addSettingsPanel(TorSettingsPanel(controller))
+            // GUARDED: attach runs in InitializationProvider before Application.onCreate; a holder/panel
+            // wiring fault must not crash the process cold. Controller construction above is pure refs
+            // (no native load — libtor.so loads only when the Tor service actually starts).
+            runCatching {
+                TorGateway.controller = controller
+                FeatureRegistry.addSettingsPanel(TorSettingsPanel(controller))
+            }.onFailure { LogBus.w("Tor", "lane publish skipped: ${it.message}") }
             installed = controller
             LogBus.i("Tor", "Tor lane registered (embedded tor-android, loopback SOCKS5 127.0.0.1:9050)")
             return controller

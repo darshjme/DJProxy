@@ -13,9 +13,15 @@ import ai.darshj.djproxy.vpn.LogBus
 class OvpnEngineRegistrar : Initializer<OvpnEngineController> {
 
     override fun create(context: Context): OvpnEngineController {
+        // Runs in InitializationProvider BEFORE Application.onCreate — a throw here would crash the
+        // process cold (before any UI), so the publish is guarded. OvpnEngineController construction is
+        // pure state (flow holders); the native gomobile library (libgojni.so) is NOT loaded here — it
+        // loads lazily on the first Ovpnsocks.start() when the user actually connects a VPN Gate server.
         val controller = OvpnEngineController(context.applicationContext)
-        OvpnEngineGateway.controller = controller
-        LogBus.i("OvpnEngine", "OpenVPN engine lane registered (userspace minivpn → local SOCKS5; VPN Gate as a proxy)")
+        runCatching {
+            OvpnEngineGateway.controller = controller
+            LogBus.i("OvpnEngine", "OpenVPN engine lane registered (userspace minivpn → local SOCKS5; VPN Gate as a proxy)")
+        }.onFailure { LogBus.w("OvpnEngine", "lane publish skipped: ${it.message}") }
         return controller
     }
 

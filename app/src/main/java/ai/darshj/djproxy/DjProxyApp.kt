@@ -1,6 +1,7 @@
 package ai.darshj.djproxy
 
 import android.app.Application
+import android.content.Context
 import ai.darshj.djproxy.proxy.LocalSocksServer
 import ai.darshj.djproxy.proxy.PreflightValidator
 import ai.darshj.djproxy.proxy.ProxyDialer
@@ -25,10 +26,21 @@ import ai.darshj.djproxy.vpn.VpnRuntime
  */
 class DjProxyApp : Application() {
 
+    override fun attachBaseContext(base: Context) {
+        super.attachBaseContext(base)
+        // Global safety net installed at the EARLIEST possible point. attachBaseContext runs BEFORE
+        // androidx.startup's InitializationProvider (a ContentProvider) constructs the lane
+        // Initializers — so a lane that throws during cold init (which lands the process on the OS
+        // default handler *before* onCreate) is now captured to last_crash.txt too. Previously
+        // install() ran in onCreate(), i.e. AFTER the Initializers, so an Initializer crash was
+        // invisible to our own capture and looked like an instant "crash on tapping the icon" with no
+        // report. Idempotent: install() guards a re-run, so the onCreate() call below is a no-op.
+        runCatching { CrashCatcher.install(this) }
+    }
+
     override fun onCreate() {
         super.onCreate()
-        // Global safety net FIRST (§4.1): any uncaught throwable on any thread is captured for the
-        // diagnostic report + routed to the CriticalFailureSink, then delegated to the OS handler.
+        // Idempotent re-assert (no-op if attachBaseContext already installed it).
         CrashCatcher.install(this)
         wireDependencies()
     }

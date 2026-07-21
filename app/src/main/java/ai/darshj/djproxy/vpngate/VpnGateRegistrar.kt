@@ -39,10 +39,14 @@ class VpnGateRegistrar : Initializer<VpnGateController> {
             installed?.let { return it }
             val source = RemoteVpnGateSource.create(appContext)
             val controller = VpnGateController(source)
-            VpnGateGateway.controller = controller
-            // v2: publish the saved-.ovpn vault (its own private prefs file) into the same lane holder.
-            VpnGateGateway.ovpnVault = SharedPreferencesOvpnVault.fromContext(appContext)
-            FeatureRegistry.addSettingsPanel(VpnGateSettingsPanel(controller))
+            // GUARDED: attach runs in InitializationProvider before Application.onCreate; the vault +
+            // panel wiring touch SharedPreferences, so a read fault must not crash the process cold.
+            runCatching {
+                VpnGateGateway.controller = controller
+                // v2: publish the saved-.ovpn vault (its own private prefs file) into the same lane holder.
+                VpnGateGateway.ovpnVault = SharedPreferencesOvpnVault.fromContext(appContext)
+                FeatureRegistry.addSettingsPanel(VpnGateSettingsPanel(controller))
+            }.onFailure { LogBus.w("VpnGate", "lane publish skipped: ${it.message}") }
             installed = controller
             LogBus.i("VpnGate", "VPN Gate lane registered (catalog browser + .ovpn hand-off + saved vault; not a tunnel)")
             return controller

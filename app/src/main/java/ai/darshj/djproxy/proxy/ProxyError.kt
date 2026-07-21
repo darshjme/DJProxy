@@ -72,6 +72,17 @@ sealed class ProxyError(val message: String, val hint: String) {
         message = "Network error: $detail",
         hint = "Check your device's own connectivity and try again.",
     )
+
+    /**
+     * The OS has NOT granted VPN consent — `VpnService.establish()` returned null. This is not a
+     * proxy fault: the app must (re-)request the system VPN permission and retry the connect. The UI
+     * recognises this specific case and, instead of surfacing it as a dead-end error, drives the VPN
+     * consent dialog then re-runs the last connect (see ProxyViewModel's consent-retry observer).
+     */
+    object VpnPermissionRequired : ProxyError(
+        message = "VPN permission needed",
+        hint = "Allow the VPN connection request so DJProxy can route your device.",
+    )
 }
 
 /** Outcome of the validate-before-up pre-flight. Total: success carries proof, failure carries a typed error. */

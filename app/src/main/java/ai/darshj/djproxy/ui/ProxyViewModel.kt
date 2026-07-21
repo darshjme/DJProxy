@@ -215,6 +215,39 @@ class ProxyViewModel : ViewModel() {
     /** Non-null while the manual editor is editing an existing vault entry (§5.4). */
     val editing: StateFlow<EditContext?> = _editing.asStateFlow()
 
+    /** The last connect the user initiated, re-runnable so the consent-retry observer can re-fire it
+     *  after the OS VPN permission is granted. Set at the start of every connect path (each re-runs the
+     *  same [vpnConsentGate]-wrapped body, which prompts the OS dialog when consent is missing). */
+    @Volatile
+    private var lastConnect: (() -> Unit)? = null
+
+    /** Guards the consent-retry observer: one OS prompt per VpnPermissionRequired episode; re-armed
+     *  once the tunnel leaves the ERROR stage, so a declined dialog never loops. */
+    @Volatile
+    private var consentRetryArmed = true
+
+    init {
+        // Consent self-heal: if a bring-up dead-ends because the OS VPN permission is not held
+        // (VpnService.establish() == null → ProxyError.VpnPermissionRequired), do NOT strand the user on
+        // a dead error. Re-run the last connect, whose consent gate then requests the VPN permission and
+        // reconnects on grant. Covers EVERY path (ring, Tor, VPN Gate, saved .ovpn, tile/widget),
+        // including consent revoked AFTER the pre-connect gate already passed. This is what turns
+        // "shows VPN permission error" into "requests the permission in-app".
+        viewModelScope.launch {
+            vpnState.collect { st ->
+                val needsConsent = st.stage == VpnStage.ERROR && st.error === ProxyError.VpnPermissionRequired
+                when {
+                    needsConsent && consentRetryArmed -> {
+                        consentRetryArmed = false
+                        LogBus.i("UI", "VPN permission missing on bring-up — requesting it and retrying.")
+                        lastConnect?.invoke()
+                    }
+                    st.stage != VpnStage.ERROR -> consentRetryArmed = true
+                }
+            }
+        }
+    }
+
     /** Attach the vault / status / free-list seams. Idempotent, mirrors [attachController]. */
     fun attachVault(store: ProxyStore, checker: StatusChecker, freeSource: FreeProxySource) {
         _store.value = store
@@ -511,7 +544,8 @@ class ProxyViewModel : ViewModel() {
     /** Runs the real pre-flight on the current config (the exact live dial path). Never optimistic. */
     fun onApply() = applyConfig(_uiState.value.config)
 
-    private fun applyConfig(config: ProxyConfig) = vpnConsentGate {
+    private fun applyConfig(config: ProxyConfig): Unit = vpnConsentGate {
+        lastConnect = { applyConfig(config) }
         val controller = _controller.value ?: run {
             LogBus.w("UI", "Apply tapped before the VPN service finished binding.")
             _uiState.value = _uiState.value.copy(
@@ -545,7 +579,8 @@ class ProxyViewModel : ViewModel() {
      * with no tunnel actually carrying traffic — a dishonest, resource-leaking half-state. If the VPN
      * service is not bound yet, that is also surfaced (and Tor stopped) instead of silently no-op'ing.
      */
-    private fun applyTorConfig(config: ProxyConfig) = vpnConsentGate {
+    private fun applyTorConfig(config: ProxyConfig): Unit = vpnConsentGate {
+        lastConnect = { applyTorConfig(config) }
         val controller = _controller.value ?: run {
             LogBus.w("UI", "Tor bootstrapped but the VPN service is not bound yet — stopping Tor.")
             stopTorIfRunning()
@@ -899,7 +934,8 @@ class ProxyViewModel : ViewModel() {
      * the Tor lane uses. Suspends over the OpenVPN handshake; a cipher the engine can't do (or any
      * failure) surfaces as an honest inline error instead of a half-state.
      */
-    fun connectVpnGateEngine(server: ai.darshj.djproxy.vpngate.VpnGateServer) = vpnConsentGate {
+    fun connectVpnGateEngine(server: ai.darshj.djproxy.vpngate.VpnGateServer): Unit = vpnConsentGate {
+        lastConnect = { connectVpnGateEngine(server) }
         val engine = ai.darshj.djproxy.ovpnengine.OvpnEngineGateway.controller ?: run {
             _uiState.value = _uiState.value.copy(
                 validationError = ProxyError.Io("The in-app OpenVPN engine isn't available in this build."),
@@ -926,7 +962,8 @@ class ProxyViewModel : ViewModel() {
 
     /** In-app Connect for a SAVED .ovpn profile: resolve its stored text from the vault, then bring it up
      *  through the embedded engine exactly like a catalog row. */
-    fun connectSavedOvpnEngine(id: String) = vpnConsentGate {
+    fun connectSavedOvpnEngine(id: String): Unit = vpnConsentGate {
+        lastConnect = { connectSavedOvpnEngine(id) }
         val engine = ai.darshj.djproxy.ovpnengine.OvpnEngineGateway.controller ?: run {
             _uiState.value = _uiState.value.copy(
                 validationError = ProxyError.Io("The in-app OpenVPN engine isn't available in this build."),

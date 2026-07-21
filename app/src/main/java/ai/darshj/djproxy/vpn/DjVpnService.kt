@@ -167,8 +167,11 @@ class DjVpnService : VpnService() {
             // 1) Establish the tun with the full leak-proof route/DNS setup.
             val builder = Builder()
             TunBuilder.configure(builder, config, packageName)
+            // establish() returns null ONLY when the OS has not granted VPN consent. Tag it as the
+            // distinct, recognisable error so the UI re-requests the VPN permission and retries the
+            // connect, instead of dead-ending on a raw "permission not granted" message.
             val pfd = builder.establish()
-                ?: throw IllegalStateException("VPN permission not granted (establish returned null)")
+                ?: throw BringUpException(ProxyError.VpnPermissionRequired)
             tunPfd = pfd
 
             // 2) Start the loopback SOCKS front (policy) and the native engine (out-of-process),

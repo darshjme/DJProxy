@@ -73,18 +73,43 @@ class MainActivity : ComponentActivity() {
      *  splash and was effectively invisible on a fast device). */
     private val systemSplashGone = mutableStateOf(false)
 
+    /** A connect action deferred until the user answers the OS VPN-consent dialog (set by the ViewModel's
+     *  consent gate). Run on grant, dropped on decline — so tapping Connect prompts consent then connects. */
+    private var afterConsent: (() -> Unit)? = null
+
     private val vpnConsentLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
+        val pending = afterConsent
+        afterConsent = null
         if (result.resultCode == RESULT_OK) {
             LogBus.i("UI", "VPN permission granted.")
+            // Bind first so the controller is (being) attached, then run the deferred connect. On the
+            // very first grant the bind is async, so the connect may report "still starting" once and
+            // succeed on the next tap — acceptable, and far better than the old permanent dead-end.
+            bindVpnService()
+            pending?.invoke()
         } else {
-            LogBus.w("UI", "VPN permission was not granted — Connect will fail until it is.")
+            LogBus.w("UI", "VPN permission was not granted — Connect needs it; will re-ask next time.")
+            // Bind regardless so validation errors still surface; drop the deferred connect (declined).
+            bindVpnService()
         }
-        // Bind regardless: the controller itself enforces "no route without consent" at apply()
-        // time (VpnService.establish() throws without prior consent), so the screen can still
-        // show real validation errors even if the user declines here.
-        bindVpnService()
+    }
+
+    /**
+     * The ViewModel's consent gate: run [onGranted] immediately if VPN consent is already held, else
+     * prompt for it and run [onGranted] on approval. This is what makes every Connect (proxy / Tor / VPN
+     * Gate) request the OS VPN permission when it's missing instead of failing with "not granted".
+     */
+    private fun ensureVpnConsentThen(onGranted: () -> Unit) {
+        val consentIntent = runCatching { VpnService.prepare(this) }.getOrNull()
+        if (consentIntent == null) {
+            onGranted()
+        } else {
+            afterConsent = onGranted
+            runCatching { vpnConsentLauncher.launch(consentIntent) }
+                .onFailure { afterConsent = null; LogBus.w("UI", "Could not show the VPN consent dialog: ${it.message}") }
+        }
     }
 
     private val notificationPermissionLauncher = registerForActivityResult(
@@ -120,6 +145,10 @@ class MainActivity : ComponentActivity() {
 
         requestNotificationPermissionIfNeeded()
         requestVpnConsent()
+        // Install the consent gate: every Connect now prompts for the OS VPN permission when it isn't
+        // held (Android revokes it on reinstall / "Forget VPN") instead of dead-ending at
+        // establish()==null. Fixes the "kept saying VPN permission error" report.
+        viewModel.vpnConsentGate = { onGranted -> ensureVpnConsentThen(onGranted) }
         attachVaultSeams()
 
         // Ingest any launch intent (deep link / share / .ovpn open) — parses and raises the Import

@@ -498,18 +498,32 @@ class ProxyViewModel : ViewModel() {
         LogBus.i("UI", "Tor prepare cancelled by the user.")
     }
 
+    /**
+     * VPN-consent gate, installed by [MainActivity]. Every connect routes through it: it prompts for the
+     * OS VPN permission if it isn't currently granted (Android revokes it on reinstall / "Forget VPN"),
+     * then runs the connect. Without this, a Connect after consent was reset dead-ends at
+     * `VpnService.establish() == null` → the endless "VPN permission not granted" error. Default (unit
+     * tests / no Activity) runs immediately.
+     */
+    @Volatile
+    var vpnConsentGate: (onGranted: () -> Unit) -> Unit = { it() }
+
     /** Runs the real pre-flight on the current config (the exact live dial path). Never optimistic. */
     fun onApply() = applyConfig(_uiState.value.config)
 
-    private fun applyConfig(config: ProxyConfig) {
+    private fun applyConfig(config: ProxyConfig) = vpnConsentGate {
         val controller = _controller.value ?: run {
             LogBus.w("UI", "Apply tapped before the VPN service finished binding.")
-            return
+            _uiState.value = _uiState.value.copy(
+                config = config,
+                validationError = ProxyError.Io("The VPN service is still starting — tap Connect again in a moment."),
+            )
+            return@vpnConsentGate
         }
         val fieldError = config.validate()
         if (fieldError != null) {
             _uiState.value = _uiState.value.copy(config = config, validationError = ProxyError.Io(fieldError))
-            return
+            return@vpnConsentGate
         }
         _uiState.value = _uiState.value.copy(config = config, validationError = null)
         viewModelScope.launch {
@@ -531,7 +545,7 @@ class ProxyViewModel : ViewModel() {
      * with no tunnel actually carrying traffic — a dishonest, resource-leaking half-state. If the VPN
      * service is not bound yet, that is also surfaced (and Tor stopped) instead of silently no-op'ing.
      */
-    private fun applyTorConfig(config: ProxyConfig) {
+    private fun applyTorConfig(config: ProxyConfig) = vpnConsentGate {
         val controller = _controller.value ?: run {
             LogBus.w("UI", "Tor bootstrapped but the VPN service is not bound yet — stopping Tor.")
             stopTorIfRunning()
@@ -539,7 +553,7 @@ class ProxyViewModel : ViewModel() {
             _uiState.value = _uiState.value.copy(
                 validationError = ProxyError.Io("The VPN service is still starting. Try enabling Tor again in a moment."),
             )
-            return
+            return@vpnConsentGate
         }
         _uiState.value = _uiState.value.copy(config = config, validationError = null)
         viewModelScope.launch {
@@ -937,14 +951,15 @@ class ProxyViewModel : ViewModel() {
     }
 
     /** Applies the engine's loopback SOCKS5 through the EXISTING VpnController; tears the engine down on
-     *  a failed bring-up so a dead OpenVPN tunnel never lingers (mirrors [applyTorConfig]). */
-    private fun applyEngineConfig(config: ProxyConfig) {
+     *  a failed bring-up so a dead OpenVPN tunnel never lingers (mirrors [applyTorConfig]). Consent-gated
+     *  so a first-action VPN Gate connect prompts the OS VPN permission instead of failing. */
+    private fun applyEngineConfig(config: ProxyConfig) = vpnConsentGate {
         val controller = _controller.value ?: run {
             stopOvpnEngineIfRunning()
             _uiState.value = _uiState.value.copy(
                 validationError = ProxyError.Io("The VPN service is still starting. Try Connect again in a moment."),
             )
-            return
+            return@vpnConsentGate
         }
         _uiState.value = _uiState.value.copy(config = config, validationError = null)
         viewModelScope.launch {

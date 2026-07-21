@@ -295,6 +295,12 @@
             <meta-data
                 android:name="ai.darshj.djproxy.vpngate.VpnGateRegistrar"
                 android:value="androidx.startup" />
+            <!-- ovpnengine lane (v9): the userspace OpenVPN->local-SOCKS5 engine (gomobile ovpnsocks.aar)
+                 that lets a VPN Gate server be used AS a device-wide proxy through the existing hev
+                 tunnel — same shape as the Tor lane. Publishes OvpnEngineGateway.controller. -->
+            <meta-data
+                android:name="ai.darshj.djproxy.ovpnengine.OvpnEngineRegistrar"
+                android:value="androidx.startup" />
         </provider>
 
         <!--

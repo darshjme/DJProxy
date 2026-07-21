@@ -29,4 +29,12 @@
 -keep class org.torproject.jni.TorService$* { *; }
 -keep class net.freehaven.tor.control.** { *; }
 
+# --- ovpnengine lane (gomobile ovpnsocks.aar): the userspace OpenVPN->SOCKS5 engine. gomobile's
+#     generated classes (ovpnsocks.Ovpnsocks + the go.Seq JNI runtime) reach across the JNI boundary by
+#     class/method NAME and declare `native` methods bound at load; R8 renaming/stripping them in release
+#     would crash with UnsatisfiedLinkError / NoSuchMethodError the instant the engine starts (same class
+#     of release-only fault the tor keep rules above fix). Keep both wholesale. ---
+-keep class ovpnsocks.** { *; }
+-keep class go.** { *; }
+
 # Kotlin metadata for the coroutines/reflection used by the engine lane stays intact by default.

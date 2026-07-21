@@ -101,6 +101,11 @@ android {
 }
 
 dependencies {
+    // ovpnengine lane: the userspace OpenVPN→local-SOCKS5 engine (ooni/minivpn + wireguard netstack +
+    // go-socks5, gomobile-bound). Lets a VPN Gate / OpenVPN server be used AS a proxy the existing hev
+    // tunnel routes through — same shape as the embedded Tor lane. 4 ABIs, JNI .so inside the .aar.
+    implementation(files("libs/ovpnsocks.aar"))
+
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")

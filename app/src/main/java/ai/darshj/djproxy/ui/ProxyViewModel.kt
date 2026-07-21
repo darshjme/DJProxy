@@ -557,6 +557,9 @@ class ProxyViewModel : ViewModel() {
 
     fun onStop() {
         _controller.value?.stop()
+        // If a VPN Gate OpenVPN tunnel was carrying this session, tear its engine down too (unlike Tor,
+        // the minivpn engine is bound to one server and has no warm-reuse benefit).
+        stopOvpnEngineIfRunning()
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -865,5 +868,97 @@ class ProxyViewModel : ViewModel() {
     /** Clear the [vpnGateNoOpenVpnApp] guidance flag once the ui has shown it. */
     fun dismissVpnGateNoOpenVpnApp() {
         _vpnGateNoOpenVpnApp.value = false
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // VPN Gate IN-APP connect — use the OpenVPN server AS a proxy via the embedded userspace engine
+    // (ovpnengine lane: minivpn -> local SOCKS5 -> the EXISTING VpnController.apply path, like Tor).
+    // ---------------------------------------------------------------------------------------------
+
+    /** True while the OpenVPN engine is establishing a tunnel (the handshake blocks a few seconds). */
+    private val _vpnGateConnecting = MutableStateFlow(false)
+    val vpnGateConnecting: StateFlow<Boolean> = _vpnGateConnecting.asStateFlow()
+
+    /**
+     * Bring a VPN Gate server up AS a device-wide proxy: start the embedded OpenVPN engine from the
+     * server's `.ovpn`, then route the existing tunnel through its loopback SOCKS5 — exactly the shape
+     * the Tor lane uses. Suspends over the OpenVPN handshake; a cipher the engine can't do (or any
+     * failure) surfaces as an honest inline error instead of a half-state.
+     */
+    fun connectVpnGateEngine(server: ai.darshj.djproxy.vpngate.VpnGateServer) {
+        val engine = ai.darshj.djproxy.ovpnengine.OvpnEngineGateway.controller ?: run {
+            _uiState.value = _uiState.value.copy(
+                validationError = ProxyError.Io("The in-app OpenVPN engine isn't available in this build."),
+            )
+            return
+        }
+        viewModelScope.launch {
+            _vpnGateConnecting.value = true
+            _uiState.value = _uiState.value.copy(validationError = null)
+            val cfg = engine.start(server.ovpn)
+            _vpnGateConnecting.value = false
+            if (cfg == null) {
+                _uiState.value = _uiState.value.copy(
+                    validationError = ProxyError.Io(
+                        "Couldn't connect to ${server.hostName}. It may use a cipher DJProxy's engine " +
+                            "doesn't support yet — try another VPN Gate server.",
+                    ),
+                )
+                return@launch
+            }
+            applyEngineConfig(cfg)
+        }
+    }
+
+    /** In-app Connect for a SAVED .ovpn profile: resolve its stored text from the vault, then bring it up
+     *  through the embedded engine exactly like a catalog row. */
+    fun connectSavedOvpnEngine(id: String) {
+        val engine = ai.darshj.djproxy.ovpnengine.OvpnEngineGateway.controller ?: run {
+            _uiState.value = _uiState.value.copy(
+                validationError = ProxyError.Io("The in-app OpenVPN engine isn't available in this build."),
+            )
+            return
+        }
+        val vault = ai.darshj.djproxy.vpngate.VpnGateGateway.ovpnVault ?: return
+        viewModelScope.launch {
+            _vpnGateConnecting.value = true
+            _uiState.value = _uiState.value.copy(validationError = null)
+            val text = vault.resolve(id)
+            val cfg = if (text != null) engine.start(text) else null
+            _vpnGateConnecting.value = false
+            if (cfg == null) {
+                _uiState.value = _uiState.value.copy(
+                    validationError = ProxyError.Io("Couldn't connect this saved profile — try another server."),
+                )
+                return@launch
+            }
+            applyEngineConfig(cfg)
+        }
+    }
+
+    /** Applies the engine's loopback SOCKS5 through the EXISTING VpnController; tears the engine down on
+     *  a failed bring-up so a dead OpenVPN tunnel never lingers (mirrors [applyTorConfig]). */
+    private fun applyEngineConfig(config: ProxyConfig) {
+        val controller = _controller.value ?: run {
+            stopOvpnEngineIfRunning()
+            _uiState.value = _uiState.value.copy(
+                validationError = ProxyError.Io("The VPN service is still starting. Try Connect again in a moment."),
+            )
+            return
+        }
+        _uiState.value = _uiState.value.copy(config = config, validationError = null)
+        viewModelScope.launch {
+            when (val result = controller.apply(config)) {
+                is ValidationResult.Success -> _uiState.value = _uiState.value.copy(validationError = null)
+                is ValidationResult.Failure -> {
+                    stopOvpnEngineIfRunning()
+                    _uiState.value = _uiState.value.copy(validationError = result.error)
+                }
+            }
+        }
+    }
+
+    private fun stopOvpnEngineIfRunning() {
+        runCatching { ai.darshj.djproxy.ovpnengine.OvpnEngineGateway.controller?.stop() }
     }
 }

@@ -293,12 +293,20 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
                     // "install an OpenVPN app" guidance dialog. Kills the old export→manual-reimport dance.
                     savedOvpn = savedOvpn,
                     onConnectVpnGate = { row ->
-                        vpnGateServers.firstOrNull { it.key == row.id }?.let { viewModel.connectOvpnGate(onboardingContext, it) }
+                        // v9: Connect IN-APP — use the OpenVPN server as a proxy via the embedded engine,
+                        // then show the connect orb on Home (mirrors tapping a normal proxy / Tor).
+                        vpnGateServers.firstOrNull { it.key == row.id }?.let {
+                            viewModel.connectVpnGateEngine(it)
+                            route = Route.Home
+                        }
                     },
                     onSaveOvpnProfile = { row ->
                         vpnGateServers.firstOrNull { it.key == row.id }?.let { viewModel.saveOvpnGate(it) }
                     },
-                    onConnectSavedOvpn = { id -> viewModel.connectSavedOvpn(onboardingContext, id) },
+                    onConnectSavedOvpn = { id ->
+                        viewModel.connectSavedOvpnEngine(id)
+                        route = Route.Home
+                    },
                     onShareSavedOvpn = { id -> viewModel.shareSavedOvpn(onboardingContext, id) },
                     onDeleteSavedOvpn = viewModel::deleteSavedOvpn,
                     vpnGateNoOpenVpnApp = vpnGateNoOpenVpnApp,

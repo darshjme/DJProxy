@@ -121,10 +121,11 @@ fun ManualEditSheet(
                 }
                 if (onSaveToVault != null) {
                     TextButton(
-                        onClick = {
-                            onSaveToVault()
-                            onDismiss()
-                        },
+                        // onSaveToVault raises the SaveProxy sheet (a sheet-state transition). Do NOT also
+                        // call onDismiss() here: onDismiss sets the sheet back to None and OVERRIDES the
+                        // transition, so the save sheet opened then instantly closed and nothing saved
+                        // ("save to vault not happening"). The state change alone dismisses this editor.
+                        onClick = onSaveToVault,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text("Save to vault", color = DjColors.AccentCyan)

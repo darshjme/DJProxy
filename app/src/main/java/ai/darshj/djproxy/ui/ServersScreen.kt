@@ -643,8 +643,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.vpnGateTab(
             item {
                 EmptyState(
                     title = "No VPN Gate servers yet",
-                    body = "Tap Refresh to pull the public VPN Gate list. These publish OpenVPN profiles — " +
-                        "Connect opens one in an external OpenVPN app. DJProxy does not tunnel VPN Gate itself.",
+                    body = "Tap Refresh to pull the public VPN Gate list. Connect routes your device through a " +
+                        "server using DJProxy's built-in OpenVPN engine (some ciphers aren't supported yet).",
                 )
             }
         }
@@ -795,7 +795,7 @@ private fun VpnGateRowItem(
 
             if (!row.directlyDialable) {
                 Text(
-                    "OpenVPN-only — Connect opens it in an external OpenVPN app.",
+                    "Connect routes your device through this server via DJProxy's engine. Share opens it in an external OpenVPN app.",
                     style = MaterialTheme.typography.labelSmall,
                     color = DjColors.Amber,
                     modifier = Modifier.padding(top = DjSpacing.sm),
@@ -901,10 +901,10 @@ private fun VpnGateCaveatCard() {
         Column(Modifier.fillMaxWidth()) {
             Text("VPN Gate — OpenVPN servers", style = MaterialTheme.typography.titleSmall, color = DjColors.TextPrimary)
             Text(
-                "DJProxy speaks SOCKS5/HTTP, not OpenVPN, so it can't tunnel these directly. Connect hands a " +
-                    "server's profile to an external OpenVPN app (or Save it for later); Share is a fallback. " +
-                    "A few servers also expose a directly-usable proxy — those show a Use action. These are " +
-                    "untrusted public servers.",
+                "Tap Connect to route your whole device through one of these OpenVPN servers using DJProxy's " +
+                    "built-in engine. Some servers use a cipher the engine can't do yet — you'll get a " +
+                    "\"try another server\" message, not a hang. Save keeps a profile for later; Share hands it " +
+                    "to an external OpenVPN app as a fallback. These are untrusted public servers.",
                 style = MaterialTheme.typography.bodySmall,
                 color = DjColors.TextSecondary,
                 modifier = Modifier.padding(top = 4.dp),

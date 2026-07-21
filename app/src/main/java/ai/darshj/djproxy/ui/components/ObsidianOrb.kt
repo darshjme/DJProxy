@@ -74,6 +74,11 @@ import kotlin.math.sin
  * mid-value fallbacks (exactly as ConnectRing gates breath/spin/pulse). Every duration/amplitude is
  * read from [MotionTokens] — nothing is hard-coded here.
  */
+// Process-global capability flag: flipped false the first time the BlurMaskFilter rim draw throws on a
+// hostile/emulated GPU, permanently skipping that one cosmetic native draw so the orb never crashes.
+@Volatile
+private var orbRimBlurOk = true
+
 @Composable
 fun ObsidianOrb(
     stage: VpnStage,
@@ -288,11 +293,20 @@ fun ObsidianOrb(
 
             // 2) blurred rim halo BEHIND the body: the inner half is covered by the opaque sphere, so
             //    only the outer bleed shows — a soft state-accent glow hugging the black edge.
-            rimPaint.style = android.graphics.Paint.Style.STROKE
-            rimPaint.strokeWidth = orbR * 0.06f
-            rimPaint.color = visual.accent.copy(alpha = glowAlpha).toArgb()
-            rimPaint.maskFilter = BlurMaskFilter(orbR * 0.16f, BlurMaskFilter.Blur.NORMAL)
-            drawContext.canvas.nativeCanvas.drawCircle(c.x, c.y, orbR, rimPaint)
+            //    A BlurMaskFilter on the hardware-accelerated nativeCanvas is fragile on some emulated
+            //    GPUs (LDPlayer / older-Android software renderers) and can throw in the draw phase,
+            //    which would crash the whole app on the very first frame. Guard it: on the first failure
+            //    disable the rim glow permanently (purely cosmetic) so the orb still renders everywhere.
+            if (orbRimBlurOk) {
+                val drew = runCatching {
+                    rimPaint.style = android.graphics.Paint.Style.STROKE
+                    rimPaint.strokeWidth = orbR * 0.06f
+                    rimPaint.color = visual.accent.copy(alpha = glowAlpha).toArgb()
+                    rimPaint.maskFilter = BlurMaskFilter(orbR * 0.16f, BlurMaskFilter.Blur.NORMAL)
+                    drawContext.canvas.nativeCanvas.drawCircle(c.x, c.y, orbR, rimPaint)
+                }.isSuccess
+                if (!drew) orbRimBlurOk = false
+            }
 
             // 3) the sphere body — glossy graphite radial. Shader path (API 33+) folds the specular in;
             //    Canvas path draws body + specular separately. Both consume the identical values.

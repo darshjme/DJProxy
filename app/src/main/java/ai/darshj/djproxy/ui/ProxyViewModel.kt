@@ -899,12 +899,12 @@ class ProxyViewModel : ViewModel() {
      * the Tor lane uses. Suspends over the OpenVPN handshake; a cipher the engine can't do (or any
      * failure) surfaces as an honest inline error instead of a half-state.
      */
-    fun connectVpnGateEngine(server: ai.darshj.djproxy.vpngate.VpnGateServer) {
+    fun connectVpnGateEngine(server: ai.darshj.djproxy.vpngate.VpnGateServer) = vpnConsentGate {
         val engine = ai.darshj.djproxy.ovpnengine.OvpnEngineGateway.controller ?: run {
             _uiState.value = _uiState.value.copy(
                 validationError = ProxyError.Io("The in-app OpenVPN engine isn't available in this build."),
             )
-            return
+            return@vpnConsentGate
         }
         viewModelScope.launch {
             _vpnGateConnecting.value = true
@@ -926,14 +926,14 @@ class ProxyViewModel : ViewModel() {
 
     /** In-app Connect for a SAVED .ovpn profile: resolve its stored text from the vault, then bring it up
      *  through the embedded engine exactly like a catalog row. */
-    fun connectSavedOvpnEngine(id: String) {
+    fun connectSavedOvpnEngine(id: String) = vpnConsentGate {
         val engine = ai.darshj.djproxy.ovpnengine.OvpnEngineGateway.controller ?: run {
             _uiState.value = _uiState.value.copy(
                 validationError = ProxyError.Io("The in-app OpenVPN engine isn't available in this build."),
             )
-            return
+            return@vpnConsentGate
         }
-        val vault = ai.darshj.djproxy.vpngate.VpnGateGateway.ovpnVault ?: return
+        val vault = ai.darshj.djproxy.vpngate.VpnGateGateway.ovpnVault ?: run { return@vpnConsentGate }
         viewModelScope.launch {
             _vpnGateConnecting.value = true
             _uiState.value = _uiState.value.copy(validationError = null)

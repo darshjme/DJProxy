@@ -8,7 +8,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import ovpnsocks.Ovpnsocks
 
 /**
@@ -34,6 +36,16 @@ class OvpnEngineController(private val appContext: Context) {
     @Volatile
     private var port = 0
 
+    /**
+     * The real reason the last [start] failed (the underlying engine/handshake error, or a timeout),
+     * or null after a success. The ui surfaces this verbatim so the user sees WHY a VPN Gate server
+     * would not connect (unsupported cipher, unreachable server, bad profile) instead of a generic
+     * "try another server" guess that was the same for every failure.
+     */
+    @Volatile
+    var lastFailure: String? = null
+        private set
+
     private val _active = MutableStateFlow(false)
     val active: StateFlow<Boolean> = _active.asStateFlow()
 
@@ -43,24 +55,59 @@ class OvpnEngineController(private val appContext: Context) {
     /**
      * Bring up the OpenVPN tunnel from [ovpn] profile text and return a `socks5://127.0.0.1:<port>`
      * [ProxyConfig] to feed the existing apply path, or null if the tunnel could not be established
-     * (unsupported cipher / bad profile / no network). Suspends until connected. Never throws.
+     * (unsupported cipher / bad profile / no network / timeout). Suspends until connected. Never throws.
+     *
+     * Bounded by [CONNECT_TIMEOUT_MS]: `Ovpnsocks.start` blocks over the whole OpenVPN handshake and,
+     * for an unreachable/UDP-blocked server, could otherwise block forever — leaving the ui spinner
+     * stuck on "connecting" (the "Connect does nothing" report). On timeout we tear the half-started
+     * engine down and fail with an honest reason instead of hanging.
      */
     suspend fun start(ovpn: String): ProxyConfig? = withContext(Dispatchers.IO) {
-        runCatching {
-            if (running) stopInternal()
-            // Ovpnsocks.start blocks until the OpenVPN handshake completes; throws on any failure.
-            val p = Ovpnsocks.start(ovpn, appContext.cacheDir.absolutePath)
-            port = p.toInt()
-            running = true
-            _active.value = true
-            LogBus.i(TAG, "OpenVPN engine up — routing via local SOCKS5 127.0.0.1:$port")
-            ProxyConfig(type = ProxyType.SOCKS5, host = LOOPBACK, port = port)
-        }.getOrElse { t ->
-            LogBus.w(TAG, "OpenVPN engine failed to connect: ${t.message}")
+        if (running) stopInternal()
+        lastFailure = null
+        val cacheDir = appContext.cacheDir.absolutePath
+        val p: Int? = try {
+            withTimeoutOrNull(CONNECT_TIMEOUT_MS) {
+                // runInterruptible so a timeout cancellation interrupts the blocking JNI call.
+                runInterruptible { Ovpnsocks.start(ovpn, cacheDir).toInt() }
+            }
+        } catch (t: Throwable) {
+            // The engine surfaces the real cause (e.g. "vpn connect: ...", "parse .ovpn: ...").
+            lastFailure = engineReason(t)
+            LogBus.w(TAG, "OpenVPN engine failed to connect: $lastFailure")
+            runCatching { Ovpnsocks.stop() }
+            null
+        }
+        if (p == null) {
+            if (lastFailure == null) {
+                // withTimeoutOrNull returned null with no exception = the handshake never completed.
+                lastFailure = "timed out after ${CONNECT_TIMEOUT_MS / 1000}s — the server is unreachable " +
+                    "or not answering (try a different VPN Gate server, ideally a nearer one)"
+                LogBus.w(TAG, "OpenVPN engine $lastFailure")
+                runCatching { Ovpnsocks.stop() }
+            }
             running = false
             port = 0
             _active.value = false
-            null
+            return@withContext null
+        }
+        port = p
+        running = true
+        _active.value = true
+        lastFailure = null
+        LogBus.i(TAG, "OpenVPN engine up — routing via local SOCKS5 127.0.0.1:$port")
+        ProxyConfig(type = ProxyType.SOCKS5, host = LOOPBACK, port = port)
+    }
+
+    /** Distils a readable cause from the engine's Go-side error string (kept short for the ui). */
+    private fun engineReason(t: Throwable): String {
+        val raw = (t.message ?: t.javaClass.simpleName).trim()
+        return when {
+            raw.contains("parse .ovpn", ignoreCase = true) -> "the server's profile could not be parsed ($raw)"
+            raw.contains("cipher", ignoreCase = true) -> "the server uses a cipher this engine can't do yet ($raw)"
+            raw.contains("vpn connect", ignoreCase = true) -> "the OpenVPN handshake failed ($raw)"
+            raw.isBlank() -> "the OpenVPN handshake failed"
+            else -> raw
         }
     }
 
@@ -82,5 +129,8 @@ class OvpnEngineController(private val appContext: Context) {
     companion object {
         private const val TAG = "OvpnEngine"
         private const val LOOPBACK = "127.0.0.1"
+        /** Upper bound on the whole OpenVPN bring-up. Generous enough for a real handshake (VPN Gate
+         *  servers can take 5–15s), short enough that an unreachable server fails instead of hanging. */
+        private const val CONNECT_TIMEOUT_MS = 30_000L
     }
 }

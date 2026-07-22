@@ -948,11 +948,9 @@ class ProxyViewModel : ViewModel() {
             val cfg = engine.start(server.ovpn)
             _vpnGateConnecting.value = false
             if (cfg == null) {
+                val why = engine.lastFailure ?: "the server may use a cipher the engine can't do yet"
                 _uiState.value = _uiState.value.copy(
-                    validationError = ProxyError.Io(
-                        "Couldn't connect to ${server.hostName}. It may use a cipher DJProxy's engine " +
-                            "doesn't support yet — try another VPN Gate server.",
-                    ),
+                    validationError = ProxyError.Io("Couldn't connect to ${server.hostName} — $why."),
                 )
                 return@launch
             }
@@ -978,8 +976,10 @@ class ProxyViewModel : ViewModel() {
             val cfg = if (text != null) engine.start(text) else null
             _vpnGateConnecting.value = false
             if (cfg == null) {
+                val why = if (text == null) "the saved profile could not be read"
+                    else engine.lastFailure ?: "the server may use a cipher the engine can't do yet"
                 _uiState.value = _uiState.value.copy(
-                    validationError = ProxyError.Io("Couldn't connect this saved profile — try another server."),
+                    validationError = ProxyError.Io("Couldn't connect this saved profile — $why."),
                 )
                 return@launch
             }

@@ -20,6 +20,15 @@ data class FreeProxyEntry(
     val port: Int,
     /** Human label of the upstream list this entry came from, e.g. "jetkai · socks5". */
     val sourceLabel: String,
+    // ---- liveness (set by FreeProxyHealthChecker via copy(); defaults preserve legacy behavior) ----
+    /** Probe round-trip through the proxy from the last health sweep, or null (never checked). */
+    val latencyMs: Long? = null,
+    /** Egress IP observed by the probe, when the endpoint reflected one. Null otherwise. */
+    val exitIp: String? = null,
+    /** Epoch-millis of the last health check, or null (never checked). */
+    val lastCheckedAt: Long? = null,
+    /** True only when the last sweep got a full green [proxy.ValidationResult.Success]. */
+    val alive: Boolean = false,
 ) {
     /** Stable identity used in the live-status map and as a vault seed. */
     val key: String get() = "free:${type.scheme}:$host:$port"

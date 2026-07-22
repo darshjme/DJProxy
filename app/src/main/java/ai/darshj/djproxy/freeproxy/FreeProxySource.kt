@@ -26,6 +26,13 @@ interface FreeProxySource {
      * explicit [fetch] with `force = true`. Default is `null` (no cache) so off-device fakes stay simple.
      */
     suspend fun fetchCachedOnly(): FreeProxyResult.Ok? = null
+
+    /**
+     * Persist [entries] (the health-sweep's GREEN survivors, carrying liveness fields) as the cached
+     * snapshot at [checkedAt] so the next tab-open shows the last-known-green set instantly. Default
+     * is a no-op so off-device fakes stay simple.
+     */
+    suspend fun storeSnapshot(entries: List<FreeProxyEntry>, checkedAt: Long) {}
 }
 
 sealed interface FreeProxyResult {

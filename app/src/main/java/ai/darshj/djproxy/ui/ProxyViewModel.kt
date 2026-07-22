@@ -9,8 +9,10 @@ import ai.darshj.djproxy.config.NamedConfig
 import ai.darshj.djproxy.core.ProxyConfig
 import ai.darshj.djproxy.core.ProxyParser
 import ai.darshj.djproxy.freeproxy.FreeProxyEntry
+import ai.darshj.djproxy.freeproxy.FreeProxyHealthChecker
 import ai.darshj.djproxy.freeproxy.FreeProxyResult
 import ai.darshj.djproxy.freeproxy.FreeProxySource
+import ai.darshj.djproxy.freeproxy.SweepProgress
 import ai.darshj.djproxy.proxy.ProxyError
 import ai.darshj.djproxy.proxy.ValidationResult
 import ai.darshj.djproxy.store.ProxyOrigin
@@ -209,6 +211,14 @@ class ProxyViewModel : ViewModel() {
 
     /** Epoch-millis the free list was last produced/cached (from [FreeProxyResult.Ok.fetchedAt]), or null. */
     val freeLastFetchedAt: StateFlow<Long?> = _freeLastFetchedAt.asStateFlow()
+
+    /** The green-sweep engine (bounded 28-wide, real PreflightValidator, 4 s timeouts). */
+    private val freeHealthChecker = FreeProxyHealthChecker()
+
+    /** Live sweep counters ("Checking 47/600 · 12 live"), or null when no sweep has started. */
+    val freeSweepProgress: StateFlow<SweepProgress?> = freeHealthChecker.progress
+        .map { if (it.total == 0) null else it }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val _editing = MutableStateFlow<EditContext?>(null)
 
@@ -411,17 +421,39 @@ class ProxyViewModel : ViewModel() {
             try {
                 when (val result = source.fetch(force)) {
                     is FreeProxyResult.Ok -> {
-                        _freeProxies.value = result.entries
-                        _freeLastFetchedAt.value = result.fetchedAt
-                        _freeProxyNote.value = if (result.fromCache) {
-                            "Showing the last cached list — couldn't refresh right now."
+                        if (result.fromCache) {
+                            // Cached = the last persisted GREEN snapshot (or a stale fallback).
+                            _freeProxies.value = result.entries
+                                .sortedBy { it.latencyMs ?: Long.MAX_VALUE }
+                            _freeLastFetchedAt.value = result.fetchedAt
+                            _freeProxyNote.value =
+                                "Showing the last cached list — couldn't refresh right now."
+                            _freeRefreshState.value = if (result.entries.isEmpty()) {
+                                FreeRefreshState.Empty
+                            } else {
+                                FreeRefreshState.Success(result.entries.size, result.fetchedAt, true)
+                            }
                         } else {
-                            null
-                        }
-                        _freeRefreshState.value = if (result.entries.isEmpty()) {
-                            FreeRefreshState.Empty
-                        } else {
-                            FreeRefreshState.Success(result.entries.size, result.fetchedAt, result.fromCache)
+                            // Fresh candidate pool → concurrent GREEN sweep. Stream survivors into the
+                            // list as they land so the tab fills progressively instead of staying blank.
+                            val stream = launch {
+                                freeHealthChecker.liveSoFar.collect { _freeProxies.value = it }
+                            }
+                            val green = try {
+                                freeHealthChecker.sweep(result.entries)
+                            } finally {
+                                stream.cancel()
+                            }
+                            _freeProxies.value = green
+                            val checkedAt = System.currentTimeMillis()
+                            _freeLastFetchedAt.value = checkedAt
+                            source.storeSnapshot(green, checkedAt)
+                            _freeProxyNote.value = null
+                            _freeRefreshState.value = if (green.isEmpty()) {
+                                FreeRefreshState.Empty
+                            } else {
+                                FreeRefreshState.Success(green.size, checkedAt, false)
+                            }
                         }
                     }
                     is FreeProxyResult.Failed -> {
@@ -446,7 +478,7 @@ class ProxyViewModel : ViewModel() {
         viewModelScope.launch {
             val cached = source.fetchCachedOnly() ?: return@launch
             if (_freeProxies.value.isEmpty()) {
-                _freeProxies.value = cached.entries
+                _freeProxies.value = cached.entries.sortedBy { it.latencyMs ?: Long.MAX_VALUE }
                 _freeLastFetchedAt.value = cached.fetchedAt
                 _freeRefreshState.value = if (cached.entries.isEmpty()) {
                     FreeRefreshState.Empty

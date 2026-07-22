@@ -16,8 +16,12 @@ import ai.darshj.djproxy.core.ProxyType
  */
 object FreeProxyParser {
 
-    /** Hard cap on the merged public list so the picker + status checker can't be flooded. */
-    const val MAX_ENTRIES: Int = 200
+    /**
+     * Hard cap on the merged CANDIDATE pool fed to the health-check sweep. The DISPLAYED list is only
+     * the green (alive) survivors of that sweep, so a bigger pool = more live results — 600 candidates
+     * at ~4 s timeouts / 28-wide fan-out still completes in well under two minutes worst-case.
+     */
+    const val MAX_ENTRIES: Int = 600
 
     /**
      * Parse a full TXT [body] into screened entries, tagging each with [sourceLabel] and defaulting

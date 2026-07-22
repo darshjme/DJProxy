@@ -173,7 +173,7 @@ func StartWireguard(privKeyB64, addressCsv, dnsCsv, peerPubB64, presharedB64, en
 	}
 
 	server, err := socks5.New(&socks5.Config{
-		Resolver: nsResolver{tnet}, // reuse ovpnsocks.go's tunnel-side resolver
+		Resolver: newCachedResolver(nsResolver{tnet}), // tunnel-side resolver + TTL cache (kills the per-CONNECT DNS RTT)
 		Dial: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			return tnet.DialContext(ctx, network, addr)
 		},

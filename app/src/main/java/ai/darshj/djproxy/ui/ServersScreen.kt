@@ -206,6 +206,7 @@ fun ServersScreen(
     onSaveFree: (FreeProxyEntry) -> Unit,
     onApplyFree: (FreeProxyEntry) -> Unit,
     freeState: FreeRefreshState = FreeRefreshState.Idle,
+    freeSweep: ai.darshj.djproxy.freeproxy.SweepProgress? = null,
     vpnGateAvailable: Boolean = false,
     vpnGate: List<VpnGateRow> = emptyList(),
     vpnGateBusy: Boolean = false,
@@ -309,6 +310,7 @@ fun ServersScreen(
                     busy = freeBusy,
                     note = freeNote,
                     state = freeState,
+                    sweep = freeSweep,
                     statuses = statuses,
                     onRefresh = { onRefreshFree(true) },
                     onCheck = { entry -> gateFree { onCheckFree(entry) } },
@@ -506,6 +508,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.freeTab(
     busy: Boolean,
     note: String?,
     state: FreeRefreshState,
+    sweep: ai.darshj.djproxy.freeproxy.SweepProgress?,
     statuses: Map<String, ProxyStatus>,
     onRefresh: () -> Unit,
     onCheck: (FreeProxyEntry) -> Unit,
@@ -522,7 +525,12 @@ private fun androidx.compose.foundation.lazy.LazyListScope.freeTab(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                if (free.isEmpty()) "No servers loaded" else "${free.size} public servers",
+                when {
+                    sweep != null && sweep.inFlight ->
+                        "${sweep.live} live · checking ${sweep.checked}/${sweep.total}"
+                    free.isEmpty() -> "No servers loaded"
+                    else -> "${free.size} live public servers"
+                },
                 style = MaterialTheme.typography.labelLarge,
                 color = DjColors.TextTertiary,
             )
@@ -555,7 +563,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.freeTab(
 
     // Only fall back to the generic empty card when there is genuinely nothing AND no error is already
     // being surfaced (an error shows its own card above, so we must not paper over it with "No servers").
-    if (free.isEmpty() && !busy && state !is FreeRefreshState.Error) {
+    if (free.isEmpty() && !busy && state !is FreeRefreshState.Error && (sweep == null || !sweep.inFlight)) {
         item {
             EmptyState(
                 title = "No free servers yet",
@@ -569,7 +577,10 @@ private fun androidx.compose.foundation.lazy.LazyListScope.freeTab(
     items(free, key = { it.key }) { entry ->
         ProxyRow(
             title = entry.host,
-            subtitle = "${entry.type.scheme}://${entry.host}:${entry.port}  ·  ${entry.sourceLabel}",
+            subtitle = buildString {
+                append("${entry.type.scheme}://${entry.host}:${entry.port}  ·  ${entry.sourceLabel}")
+                entry.latencyMs?.let { append("  ·  ${it} ms") }
+            },
             status = statuses[entry.key] ?: ProxyStatus.Unknown,
             primaryLabel = "Use ${entry.host} now",
             badges = listOf(RowBadge("Public", DjColors.Amber)),

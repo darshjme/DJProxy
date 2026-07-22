@@ -78,6 +78,10 @@ class FreeProxyCache(
  * unit-separator (``)-delimited record `type␟host␟port␟urlEncodedLabel`. URL-encoding the label
  * neutralises the delimiter and any control chars. Malformed records are skipped, so a corrupt blob
  * degrades to a smaller (or empty) list rather than throwing.
+ *
+ * v2 records append the liveness fields the health sweep sets — `alive(0|1)`, `latencyMs`,
+ * `urlEncodedExitIp`, `lastCheckedAt` (empty string for nulls) — after the original four fields.
+ * Legacy 4-field v1 records still decode (liveness defaults), so an old blob degrades gracefully.
  */
 object FreeProxyCodec {
     private const val SEP = ''
@@ -89,7 +93,11 @@ object FreeProxyCodec {
             sb.append(e.type.name).append(SEP)
                 .append(e.host).append(SEP)
                 .append(e.port).append(SEP)
-                .append(enc(e.sourceLabel)).append('\n')
+                .append(enc(e.sourceLabel)).append(SEP)
+                .append(if (e.alive) '1' else '0').append(SEP)
+                .append(e.latencyMs?.toString() ?: "").append(SEP)
+                .append(e.exitIp?.let(::enc) ?: "").append(SEP)
+                .append(e.lastCheckedAt?.toString() ?: "").append('\n')
         }
         return sb.toString()
     }
@@ -103,12 +111,28 @@ object FreeProxyCodec {
             val line = lines[i]
             if (line.isBlank()) continue
             val f = line.split(SEP)
-            if (f.size != 4) continue
+            // 4 fields = legacy v1 record (liveness defaults); 8 fields = v2 with liveness.
+            if (f.size != 4 && f.size != 8) continue
             val type = runCatching { ProxyType.valueOf(f[0]) }.getOrNull() ?: continue
             val host = f[1]
             val port = f[2].toIntOrNull() ?: continue
             val label = dec(f[3])
-            entries.add(FreeProxyEntry(type, host, port, label))
+            if (f.size == 4) {
+                entries.add(FreeProxyEntry(type, host, port, label))
+            } else {
+                entries.add(
+                    FreeProxyEntry(
+                        type = type,
+                        host = host,
+                        port = port,
+                        sourceLabel = label,
+                        alive = f[4] == "1",
+                        latencyMs = f[5].toLongOrNull(),
+                        exitIp = f[6].takeIf { it.isNotEmpty() }?.let(::dec),
+                        lastCheckedAt = f[7].toLongOrNull(),
+                    )
+                )
+            }
         }
         return FreeProxyCache.Snapshot(entries, fetchedAt)
     }

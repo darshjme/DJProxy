@@ -118,6 +118,7 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
     val editing by viewModel.editing.collectAsStateWithLifecycle()
     // v6 explicit free-refresh state (spinner -> "Updated · N · <relative>" -> inline error) + adblock.
     val freeRefreshState by viewModel.freeRefreshState.collectAsStateWithLifecycle()
+    val freeSweepProgress by viewModel.freeSweepProgress.collectAsStateWithLifecycle()
     val blockAdsMode by viewModel.blockAdsMode.collectAsStateWithLifecycle()
 
     val scope = rememberCoroutineScope()
@@ -260,6 +261,7 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
                         route = Route.Home
                     },
                     freeState = freeRefreshState,
+                    freeSweep = freeSweepProgress,
                     vpnGateAvailable = vpnGateCtl != null,
                     vpnGate = vpnGateServers.map { s ->
                         VpnGateRow(

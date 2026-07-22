@@ -94,6 +94,15 @@ class RemoteFreeProxySource(
         return FreeProxyResult.Ok(snap.entries, snap.fetchedAt, fromCache = true)
     }
 
+    /**
+     * Persist the GREEN snapshot (the health-sweep survivors, WITH latency/lastCheckedAt/alive) as the
+     * cache blob, replacing the raw candidate pool [fetch] stored. The next tab-open then shows the
+     * last-known-green set instantly via [fetchCachedOnly] — no empty tab, timestamped honestly.
+     */
+    override suspend fun storeSnapshot(entries: List<FreeProxyEntry>, checkedAt: Long) {
+        cache.put(entries, checkedAt)
+    }
+
     /** Non-null reason if [url] must not be fetched (malformed or not https). Pure → testable. */
     private fun rejectReason(url: String): String? {
         val parsed = runCatching { URL(url) }.getOrNull()
@@ -145,6 +154,21 @@ class RemoteFreeProxySource(
             Source(
                 "https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=ipport&format=text&protocol=http",
                 ProxyType.HTTP, "proxyscrape · http",
+            ),
+            // High-volume maintained SOCKS5 lists (plain ip:port over https, no key). More candidates
+            // into the health sweep = more green survivors. (geonode is deliberately absent: its API is
+            // dead — "Cannot GET /api/proxies".)
+            Source(
+                "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt",
+                ProxyType.SOCKS5, "TheSpeedX · socks5",
+            ),
+            Source(
+                "https://raw.githubusercontent.com/hookzof/socks5_list/master/proxy.txt",
+                ProxyType.SOCKS5, "hookzof · socks5",
+            ),
+            Source(
+                "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/socks5.txt",
+                ProxyType.SOCKS5, "monosans · socks5",
             ),
         )
 
@@ -206,6 +230,8 @@ class RemoteFreeProxySource(
             return RemoteFreeProxySource(cache = FreeProxyCache(persistence))
         }
 
-        private const val KEY_BLOB = "freeproxy.v1"
+        // v2: the persisted snapshot now carries liveness fields (alive/latency/exitIp/lastCheckedAt).
+        // Bumping the key retires stale v1 pools cleanly; the codec still tolerates old 4-field records.
+        private const val KEY_BLOB = "freeproxy.v2"
     }
 }

@@ -353,7 +353,7 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
                     viewModel.onApply()
                     viewModel.consumeImportPreview()
                 },
-                onOpenScan = { sheet = HomeSheet.Scan },
+                onOpenScan = { viewModel.dismissValidationError(); sheet = HomeSheet.Scan },
                 onDismiss = {
                     viewModel.consumeImportPreview()
                     viewModel.clearImportChoices()
@@ -451,6 +451,9 @@ private fun HomeContent(
     // On a fresh launch there is genuinely nothing to connect to yet — used to steer the first ring
     // tap to "add a source" instead of punishing it with a validation error.
     val hasSource = ui.config.host.isNotBlank() || torMode
+    // True during a WARP / VPN Gate / .ovpn engine handshake (vpnState stays IDLE then) — drives the
+    // orb's busy/non-tappable state AND the Free-VPN button's disabled state.
+    val wgConnecting by viewModel.vpnGateConnecting.collectAsStateWithLifecycle()
 
     // §ui-center: CenteredScreen replaces the old top-anchoring BoxWithConstraints+LazyColumn. Home's
     // content is a small fixed cluster (header, ring hero, source strip, at most one error card / chip
@@ -528,6 +531,7 @@ private fun HomeContent(
                     },
                     orbSize = ringSize,
                     torBootstrapPct = torBootstrap,
+                    externalBusy = wgConnecting,
                 )
             }
             Spacer(Modifier.height(8.dp))
@@ -589,8 +593,10 @@ private fun HomeContent(
         // TIER 1 SOURCE
         SourceStrip(
             onPaste = { onOpenSheet(HomeSheet.ManualEdit) },
-            onScan = { onOpenSheet(HomeSheet.Scan) },
-            onImport = { onOpenSheet(HomeSheet.Import) },
+            // Clear the shared app-wide validationError so a stale error (e.g. a failed Connect) doesn't
+            // appear inside a freshly-opened Scan sheet (which also blocks the camera preview) or Import.
+            onScan = { viewModel.dismissValidationError(); onOpenSheet(HomeSheet.Scan) },
+            onImport = { viewModel.dismissValidationError(); onOpenSheet(HomeSheet.Import) },
             onOpenServers = onOpenServers,
             torAvailable = torAvailable,
             torEnabled = torMode,
@@ -607,7 +613,6 @@ private fun HomeContent(
         // server to pick, no signup: registers a free anonymous WARP account once, then routes the
         // whole device through it (verified end-to-end: warp=on). Hidden if the WG engine is absent.
         val wgAvailable = remember { ai.darshj.djproxy.wireguard.WgEngineGateway.controller != null }
-        val wgConnecting by viewModel.vpnGateConnecting.collectAsStateWithLifecycle()
         if (wgAvailable) {
             androidx.compose.material3.FilledTonalButton(
                 onClick = { viewModel.connectWarp() },

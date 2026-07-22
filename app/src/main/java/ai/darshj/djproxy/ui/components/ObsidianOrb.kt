@@ -86,13 +86,16 @@ fun ObsidianOrb(
     modifier: Modifier = Modifier,
     orbSize: Dp = 200.dp,
     torBootstrapPct: Int? = null,
+    // True while a WARP / VPN Gate / .ovpn ENGINE handshake is in flight — vpnState is still IDLE during
+    // that window, so without this the ring would render idle + tappable and a stray tap could double-dial.
+    externalBusy: Boolean = false,
 ) {
     // --- State-machine plumbing carried over verbatim from ConnectRing (NOT ring-specific) ---
     val preparingTor = torBootstrapPct != null &&
         (stage == VpnStage.IDLE || stage == VpnStage.ERROR)
     val visual = orbVisualFor(stage, preparingTor)
     val busy = stage == VpnStage.VALIDATING || stage == VpnStage.CONNECTING ||
-        stage == VpnStage.STOPPING || preparingTor
+        stage == VpnStage.STOPPING || preparingTor || externalBusy
     // Tor bootstrap is the ONE "busy" pre-stage that stays tappable — a second tap is the documented
     // cancel gesture (ProxyViewModel.onRingTap -> cancelTorPrepare). Every genuine tunnel busy-stage
     // stays non-interactive.

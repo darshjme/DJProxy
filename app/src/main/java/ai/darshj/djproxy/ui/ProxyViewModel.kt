@@ -300,6 +300,7 @@ class ProxyViewModel : ViewModel() {
                 )
                 return@launch
             }
+            pendingLabel = "Saved: ${savedProxies.value.firstOrNull { it.id == id }?.name ?: "proxy"}"
             reuseConfig(config)
         }
     }
@@ -499,6 +500,7 @@ class ProxyViewModel : ViewModel() {
 
     /** Use a free public proxy now — the same reuse/apply path (after the untrusted-server consent gate). */
     fun applyFreeProxy(entry: FreeProxyEntry) {
+        pendingLabel = "Free · ${entry.host}"
         reuseConfig(entry.toConfig())
     }
 
@@ -540,6 +542,10 @@ class ProxyViewModel : ViewModel() {
      * applies its 127.0.0.1:9050 config. Taps during any busy/preparing stage are ignored.
      */
     fun onRingTap() {
+        // A WARP / VPN Gate / saved-.ovpn engine handshake is in flight (vpnState is still IDLE during
+        // it, so the guards below wouldn't catch it) — keep the ring inert so a stray tap can't fire a
+        // second, stale onApply() that races/clobbers the connect the user just started.
+        if (_vpnGateConnecting.value) return
         val stage = vpnState.value.stage
         when {
             stage == VpnStage.CONNECTED || stage == VpnStage.RECONNECTING -> {
@@ -592,6 +598,11 @@ class ProxyViewModel : ViewModel() {
             return@vpnConsentGate
         }
         _uiState.value = _uiState.value.copy(config = config, validationError = null)
+        // Honest source label for the status line (the owner asked to see WHAT is connected). The entry
+        // point (saved/free) may have set pendingLabel; otherwise this is a manual proxy.
+        ai.darshj.djproxy.vpn.VpnRuntime.sourceLabel =
+            pendingLabel ?: "Manual · ${config.type.scheme.uppercase()}"
+        pendingLabel = null
         viewModelScope.launch {
             when (val result = controller.apply(config)) {
                 is ValidationResult.Success -> _uiState.value = _uiState.value.copy(
@@ -603,6 +614,11 @@ class ProxyViewModel : ViewModel() {
             }
         }
     }
+
+    /** Honest source label the next apply/engine connect stamps into VpnRuntime.sourceLabel; the entry
+     *  point (saved/free/VPN Gate/WARP) sets it, the apply path consumes it. */
+    @Volatile
+    private var pendingLabel: String? = null
 
     /**
      * Applies the Tor loopback config through the EXISTING VpnController, but — unlike the plain
@@ -623,6 +639,7 @@ class ProxyViewModel : ViewModel() {
             return@vpnConsentGate
         }
         _uiState.value = _uiState.value.copy(config = config, validationError = null)
+        ai.darshj.djproxy.vpn.VpnRuntime.sourceLabel = "Tor"; pendingLabel = null
         viewModelScope.launch {
             when (val result = controller.apply(config)) {
                 is ValidationResult.Success -> _uiState.value = _uiState.value.copy(validationError = null)
@@ -732,6 +749,17 @@ class ProxyViewModel : ViewModel() {
      */
     fun ingestExternal(raw: String, autoConnect: Boolean, allowNetwork: Boolean = true) {
         if (raw.isBlank()) return
+        // A pasted/imported WireGuard config (own Oracle/VPS server, any WG peer, or a WARP profile) is
+        // not a proxy string — route it to the WireGuard engine (direct-tun then SOCKS fallback) instead
+        // of the SOCKS/HTTP proxy parser. This is the UI entry point for connectWireguardConfig.
+        if (raw.contains("[Interface]", ignoreCase = true) &&
+            raw.contains("PrivateKey", ignoreCase = true) &&
+            (raw.contains("[Peer]", ignoreCase = true) || raw.contains("Endpoint", ignoreCase = true))
+        ) {
+            _importPreview.value = null
+            connectWireguardConfig(raw)
+            return
+        }
         viewModelScope.launch {
             _importBusy.value = true
             try {
@@ -968,6 +996,7 @@ class ProxyViewModel : ViewModel() {
      */
     fun connectVpnGateEngine(server: ai.darshj.djproxy.vpngate.VpnGateServer): Unit = vpnConsentGate {
         lastConnect = { connectVpnGateEngine(server) }
+        pendingLabel = "VPN Gate · ${server.countryLong.ifBlank { server.hostName }}"
         val engine = ai.darshj.djproxy.ovpnengine.OvpnEngineGateway.controller ?: run {
             _uiState.value = _uiState.value.copy(
                 validationError = ProxyError.Io("The in-app OpenVPN engine isn't available in this build."),
@@ -994,6 +1023,7 @@ class ProxyViewModel : ViewModel() {
      *  through the embedded engine exactly like a catalog row. */
     fun connectSavedOvpnEngine(id: String): Unit = vpnConsentGate {
         lastConnect = { connectSavedOvpnEngine(id) }
+        pendingLabel = "VPN Gate (saved · ${savedOvpn.value.firstOrNull { it.id == id }?.name ?: "profile"})"
         val engine = ai.darshj.djproxy.ovpnengine.OvpnEngineGateway.controller ?: run {
             _uiState.value = _uiState.value.copy(
                 validationError = ProxyError.Io("The in-app OpenVPN engine isn't available in this build."),
@@ -1031,6 +1061,10 @@ class ProxyViewModel : ViewModel() {
             return@vpnConsentGate
         }
         _uiState.value = _uiState.value.copy(config = config, validationError = null)
+        // The engine caller (WARP SOCKS / VPN Gate / saved OpenVPN) set pendingLabel; consume it so the
+        // status line names the source instead of the loopback SOCKS address.
+        ai.darshj.djproxy.vpn.VpnRuntime.sourceLabel = pendingLabel ?: "VPN"
+        pendingLabel = null
         viewModelScope.launch {
             when (val result = controller.apply(config)) {
                 is ValidationResult.Success -> _uiState.value = _uiState.value.copy(validationError = null)
@@ -1066,6 +1100,10 @@ class ProxyViewModel : ViewModel() {
             )
             return@vpnConsentGate
         }
+        // A non-Tor tunnel must never run under a stale "Tor active" UI (false security state).
+        if (_torMode.value) {
+            _torMode.value = false; _torBootstrap.value = null; torJob?.cancel(); torJob = null; stopTorIfRunning()
+        }
         viewModelScope.launch {
             _vpnGateConnecting.value = true
             _uiState.value = _uiState.value.copy(validationError = null)
@@ -1086,6 +1124,7 @@ class ProxyViewModel : ViewModel() {
 
             // FALLBACK: userspace WARP → local SOCKS5 → the EXISTING VpnController.apply path.
             LogBus.w("UI", "WARP direct-tun unavailable (${engine.lastFailure ?: "unknown"}) — falling back to SOCKS mode.")
+            pendingLabel = "WARP"
             val cfg = engine.startWarp()
             _vpnGateConnecting.value = false
             if (cfg == null) {
@@ -1110,6 +1149,17 @@ class ProxyViewModel : ViewModel() {
         viewModelScope.launch {
             _vpnGateConnecting.value = true
             _uiState.value = _uiState.value.copy(validationError = null)
+            _controller.value?.stop()
+            runCatching { ai.darshj.djproxy.ovpnengine.OvpnEngineGateway.controller?.stop() }
+
+            // DIRECT-TUN first (fast, device-wide, drives VpnRuntime itself — NO applyEngineConfig).
+            if (engine.startConfigDirect(confText = confText)) {
+                _vpnGateConnecting.value = false
+                _uiState.value = _uiState.value.copy(validationError = null)
+                return@launch
+            }
+            // FALLBACK: userspace WireGuard → local SOCKS5 → the EXISTING apply path.
+            pendingLabel = "WireGuard"
             val cfg = engine.startConfig(confText)
             _vpnGateConnecting.value = false
             if (cfg == null) {

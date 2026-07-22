@@ -160,7 +160,7 @@ class DjVpnService : VpnService() {
             persistConfig(config)
             VpnRuntime.counters.reset()
             VpnRuntime.update {
-                it.copy(stage = VpnStage.CONNECTING, proxyRedacted = config.redacted(), error = null)
+                it.copy(stage = VpnStage.CONNECTING, proxyRedacted = VpnRuntime.labelFor(config), error = null)
             }
             acquireWakeLock()
 
@@ -234,7 +234,7 @@ class DjVpnService : VpnService() {
             VpnRuntime.update {
                 it.copy(
                     stage = VpnStage.CONNECTED,
-                    proxyRedacted = config.redacted(),
+                    proxyRedacted = VpnRuntime.labelFor(config),
                     connectedSinceMs = System.currentTimeMillis(),
                     health = HealthReport(reachability = reachability, checkedAtMs = System.currentTimeMillis()),
                     error = null,

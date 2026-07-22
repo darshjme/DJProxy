@@ -84,6 +84,18 @@ object VpnRuntime {
     @Volatile
     var currentConfig: ProxyConfig? = null
 
+    /**
+     * Human source label the connect site sets IMMEDIATELY before [VpnController.apply] — "WARP",
+     * "VPN Gate (Japan)", "Tor", "Manual SOCKS5", "Saved: <name>", "Free: <host>" — so the status line
+     * names WHAT is connected instead of an opaque `scheme://…@127.0.0.1:port`. Null → fall back to
+     * [ProxyConfig.redacted]. (Same seam WgDirectVpnService uses for "WARP · WireGuard (direct)".)
+     */
+    @Volatile
+    var sourceLabel: String? = null
+
+    /** The status line for [config]: the explicit [sourceLabel] if set, else the redacted config. */
+    fun labelFor(config: ProxyConfig): String = sourceLabel ?: config.redacted()
+
     /** Last advisory health snapshot; read by the diagnostics lane for its report (§8). */
     @Volatile
     var lastHealthReport: HealthReport? = null
@@ -111,12 +123,12 @@ class VpnControllerImpl(private val appContext: Context) : VpnController {
         // Field-level guard first (cheap, no network).
         config.validate()?.let { fieldError ->
             val err = ProxyError.Io(fieldError)
-            VpnRuntime.update { VpnState(stage = VpnStage.IDLE, proxyRedacted = config.redacted(), error = err) }
+            VpnRuntime.update { VpnState(stage = VpnStage.IDLE, proxyRedacted = VpnRuntime.labelFor(config), error = err) }
             return ValidationResult.Failure(err)
         }
 
         VpnRuntime.update {
-            VpnState(stage = VpnStage.VALIDATING, proxyRedacted = config.redacted())
+            VpnState(stage = VpnStage.VALIDATING, proxyRedacted = VpnRuntime.labelFor(config))
         }
 
         // Real connect + real handshake + real probe on the SAME dial path the live tunnel uses.

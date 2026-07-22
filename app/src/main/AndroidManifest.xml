@@ -301,6 +301,12 @@
             <meta-data
                 android:name="ai.darshj.djproxy.ovpnengine.OvpnEngineRegistrar"
                 android:value="androidx.startup" />
+            <!-- wireguard lane (v12): userspace WireGuard->local-SOCKS5 engine (same ovpnsocks.aar).
+                 Powers free WARP + a user's own WG server + any public WG peer as a device-wide route.
+                 Publishes WgEngineGateway.controller. -->
+            <meta-data
+                android:name="ai.darshj.djproxy.wireguard.WgEngineRegistrar"
+                android:value="androidx.startup" />
         </provider>
 
         <!--

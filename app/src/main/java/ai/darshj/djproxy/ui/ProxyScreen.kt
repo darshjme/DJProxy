@@ -601,6 +601,25 @@ private fun HomeContent(
             onToggleAdblock = viewModel::setAdBlockMode,
         )
 
+        // v12: one-tap FREE VPN via Cloudflare WARP (WireGuard). The always-works free route — no
+        // server to pick, no signup: registers a free anonymous WARP account once, then routes the
+        // whole device through it (verified end-to-end: warp=on). Hidden if the WG engine is absent.
+        val wgAvailable = remember { ai.darshj.djproxy.wireguard.WgEngineGateway.controller != null }
+        val wgConnecting by viewModel.vpnGateConnecting.collectAsStateWithLifecycle()
+        if (wgAvailable) {
+            androidx.compose.material3.FilledTonalButton(
+                onClick = { viewModel.connectWarp() },
+                enabled = controllerReady && !wgConnecting && !connected,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    if (wgConnecting) "Connecting Free VPN…" else "🛡  Free VPN  ·  Cloudflare WARP",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = DjColors.TextPrimary,
+                )
+            }
+        }
+
         // Inline blocking error card (walled apart from advisory chips, §3).
         AnimatedVisibility(
             visible = ui.validationError != null,

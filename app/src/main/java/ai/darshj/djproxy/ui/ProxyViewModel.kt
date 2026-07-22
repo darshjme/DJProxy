@@ -1012,5 +1012,59 @@ class ProxyViewModel : ViewModel() {
 
     private fun stopOvpnEngineIfRunning() {
         runCatching { ai.darshj.djproxy.ovpnengine.OvpnEngineGateway.controller?.stop() }
+        runCatching { ai.darshj.djproxy.wireguard.WgEngineGateway.controller?.stop() }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // WireGuard routes (v12) — free Cloudflare WARP + any WireGuard config, each as a device-wide
+    // route via the embedded WG engine -> local SOCKS5 -> the EXISTING apply path (like VPN Gate/Tor).
+    // ---------------------------------------------------------------------------------------------
+
+    /** Connect the FREE Cloudflare WARP tunnel (auto-registered once, cached) — the always-works route. */
+    fun connectWarp(): Unit = vpnConsentGate {
+        lastConnect = { connectWarp() }
+        val engine = ai.darshj.djproxy.wireguard.WgEngineGateway.controller ?: run {
+            _uiState.value = _uiState.value.copy(
+                validationError = ProxyError.Io("The WireGuard engine isn't available in this build."),
+            )
+            return@vpnConsentGate
+        }
+        viewModelScope.launch {
+            _vpnGateConnecting.value = true
+            _uiState.value = _uiState.value.copy(validationError = null)
+            val cfg = engine.startWarp()
+            _vpnGateConnecting.value = false
+            if (cfg == null) {
+                _uiState.value = _uiState.value.copy(
+                    validationError = ProxyError.Io("Couldn't connect WARP — ${engine.lastFailure ?: "try again"}."),
+                )
+                return@launch
+            }
+            applyEngineConfig(cfg)
+        }
+    }
+
+    /** Connect a pasted/imported WireGuard `.conf` (a user's own Oracle/VPS server or any public WG peer). */
+    fun connectWireguardConfig(confText: String): Unit = vpnConsentGate {
+        lastConnect = { connectWireguardConfig(confText) }
+        val engine = ai.darshj.djproxy.wireguard.WgEngineGateway.controller ?: run {
+            _uiState.value = _uiState.value.copy(
+                validationError = ProxyError.Io("The WireGuard engine isn't available in this build."),
+            )
+            return@vpnConsentGate
+        }
+        viewModelScope.launch {
+            _vpnGateConnecting.value = true
+            _uiState.value = _uiState.value.copy(validationError = null)
+            val cfg = engine.startConfig(confText)
+            _vpnGateConnecting.value = false
+            if (cfg == null) {
+                _uiState.value = _uiState.value.copy(
+                    validationError = ProxyError.Io("Couldn't connect this WireGuard config — ${engine.lastFailure ?: "check it and try again"}."),
+                )
+                return@launch
+            }
+            applyEngineConfig(cfg)
+        }
     }
 }

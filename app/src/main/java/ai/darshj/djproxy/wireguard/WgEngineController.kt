@@ -1,6 +1,8 @@
 package ai.darshj.djproxy.wireguard
 
 import android.content.Context
+import android.content.Intent
+import android.os.Build
 import ai.darshj.djproxy.core.ProxyConfig
 import ai.darshj.djproxy.core.ProxyType
 import ai.darshj.djproxy.vpn.LogBus
@@ -8,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -93,7 +96,93 @@ class WgEngineController(private val appContext: Context) {
         ProxyConfig(type = ProxyType.SOCKS5, host = LOOPBACK, port = port)
     }
 
-    fun stop() { runCatching { stopInternal() } }
+    // =============================================================================================
+    // DIRECT-TUN mode (v13) — WireGuard-go drives the app's VpnService tun fd DIRECTLY via
+    // [WgDirectVpnService] (no hev, no local SOCKS5, no gVisor netstack). 3-10x faster than the SOCKS
+    // path above, which stays intact as the FALLBACK. Returns a plain success/failure boolean (there
+    // is NO ProxyConfig — the tun is already device-wide when it succeeds), mirroring Ovpn3's start().
+    // =============================================================================================
+
+    /** Connect Cloudflare WARP as a DIRECT-TUN WireGuard tunnel (free, auto-registered, cached). */
+    suspend fun startWarpDirect(context: Context = appContext): Boolean = withContext(Dispatchers.IO) {
+        val profile = loadOrRegisterWarp()
+        if (profile == null) {
+            lastFailure = lastFailure ?: "WARP registration failed — check connectivity and try again"
+            return@withContext false
+        }
+        startDirect(context, profile, "WARP")
+    }
+
+    /** Connect a pasted/imported WireGuard `.conf` as a DIRECT-TUN tunnel (own server / any WG peer). */
+    suspend fun startConfigDirect(context: Context = appContext, confText: String): Boolean =
+        withContext(Dispatchers.IO) {
+            val wg = WgProfile.fromConf(confText)
+            if (wg == null) {
+                lastFailure = "That doesn't look like a valid WireGuard config (need PrivateKey, Address, Peer PublicKey, Endpoint)"
+                return@withContext false
+            }
+            startDirect(context, wg, "WireGuard")
+        }
+
+    /**
+     * Stage [p] and start [WgDirectVpnService], then await its terminal phase (CONNECTED / ERROR),
+     * bounded by [DIRECT_CONNECT_TIMEOUT_MS]. Never throws. On any non-success the half-started service
+     * is stopped and [lastFailure] carries the honest reason for the ui fallback.
+     */
+    private suspend fun startDirect(context: Context, p: WgProfile, label: String): Boolean {
+        if (running) stopInternal() // only one WG engine at a time; drop any SOCKS-mode tunnel first
+        WgDirectRuntime.reset()
+        lastFailure = null
+        WgDirectRuntime.pendingProfile = p
+        WgDirectRuntime.pendingLabel = label
+
+        startDirectService(context, WgDirectVpnService.ACTION_CONNECT)
+
+        val terminal = withTimeoutOrNull(DIRECT_CONNECT_TIMEOUT_MS) {
+            WgDirectRuntime.phase.first { it == WgDirectPhase.CONNECTED || it == WgDirectPhase.ERROR }
+        }
+        WgDirectRuntime.pendingProfile = null // done its job; do not linger in process memory
+
+        return when (terminal) {
+            WgDirectPhase.CONNECTED -> {
+                _active.value = true; lastFailure = null
+                LogBus.i(TAG, "WireGuard direct-tun up (device-wide) → $label")
+                true
+            }
+            WgDirectPhase.ERROR -> {
+                lastFailure = WgDirectRuntime.lastFailure ?: "the WireGuard handshake failed"
+                LogBus.w(TAG, "WireGuard direct failed: $lastFailure")
+                startDirectService(context, WgDirectVpnService.ACTION_STOP)
+                _active.value = false
+                false
+            }
+            else -> {
+                lastFailure = "timed out after ${DIRECT_CONNECT_TIMEOUT_MS / 1000}s — the WireGuard endpoint is unreachable"
+                LogBus.w(TAG, "WireGuard direct $lastFailure")
+                startDirectService(context, WgDirectVpnService.ACTION_STOP)
+                _active.value = false
+                false
+            }
+        }
+    }
+
+    private fun startDirectService(context: Context, action: String) {
+        val i = Intent(context, WgDirectVpnService::class.java).setAction(action)
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && action == WgDirectVpnService.ACTION_CONNECT) {
+                context.startForegroundService(i)
+            } else {
+                context.startService(i)
+            }
+        }.onFailure { LogBus.w(TAG, "wg-direct service $action failed: ${it.message}") }
+    }
+
+    fun stop() {
+        runCatching { stopInternal() }
+        // Also tear down a DIRECT-TUN tunnel if this controller brought one up (stop must cover both modes).
+        runCatching { startDirectService(appContext, WgDirectVpnService.ACTION_STOP) }
+        _active.value = false
+    }
 
     private fun stopInternal() {
         if (running || port != 0) {
@@ -133,6 +222,8 @@ class WgEngineController(private val appContext: Context) {
         private const val TAG = "WgEngine"
         private const val LOOPBACK = "127.0.0.1"
         private const val CONNECT_TIMEOUT_MS = 30_000L
+        /** Upper bound on the whole direct-tun bring-up (establish + WG handshake poll). */
+        private const val DIRECT_CONNECT_TIMEOUT_MS = 20_000L
         private const val WARP_PREFS = "djproxy_warp"
         private const val WARP_KEY = "warp_profile_json"
     }

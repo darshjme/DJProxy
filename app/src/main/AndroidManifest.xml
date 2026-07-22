@@ -146,6 +146,25 @@
         </service>
 
         <!--
+          wireguard direct-tun lane (v13): WireGuard-go drives the app's VpnService tun fd DIRECTLY
+          (no hev / no local SOCKS5 / no gVisor netstack) for a 3-10x faster WARP data path. Its OWN
+          VpnService (mirrors the ovpn3 lane) so the frozen DjVpnService is never edited. Only one
+          VpnService is ever active — starting this implicitly revokes the proxy DjVpnService.
+        -->
+        <service
+            android:name=".wireguard.WgDirectVpnService"
+            android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:foregroundServiceType="specialUse">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="WireGuard direct-tun tunnel" />
+        </service>
+
+        <!--
           Native engine sidecar, isolated in its own :engine process so a native hev crash degrades
           fail-closed (routes held, nothing forwards) instead of leaking. Declaration contributed by
           the engine lane; the vpn lane owns this manifest. Implementation class: engine/EngineService.

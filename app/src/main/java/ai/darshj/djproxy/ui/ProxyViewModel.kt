@@ -1052,7 +1052,12 @@ class ProxyViewModel : ViewModel() {
     // route via the embedded WG engine -> local SOCKS5 -> the EXISTING apply path (like VPN Gate/Tor).
     // ---------------------------------------------------------------------------------------------
 
-    /** Connect the FREE Cloudflare WARP tunnel (auto-registered once, cached) — the always-works route. */
+    /**
+     * Connect the FREE Cloudflare WARP tunnel. DIRECT-TUN first (WireGuard-go drives the VpnService tun
+     * fd directly — no hev/SOCKS5/netstack, 3-10x faster); on any failure, fall back to the proven
+     * SOCKS-mode WARP → local SOCKS5 → existing hev apply path. Only one VpnService may be active, so we
+     * tear down any existing proxy/engine tunnel before the WG tun takes over.
+     */
     fun connectWarp(): Unit = vpnConsentGate {
         lastConnect = { connectWarp() }
         val engine = ai.darshj.djproxy.wireguard.WgEngineGateway.controller ?: run {
@@ -1064,6 +1069,23 @@ class ProxyViewModel : ViewModel() {
         viewModelScope.launch {
             _vpnGateConnecting.value = true
             _uiState.value = _uiState.value.copy(validationError = null)
+
+            // Hand off cleanly: stop the proxy DjVpnService + OpenVPN engine before the WG tun. NOT the
+            // WG engine's own stop() — that would fire a WG_DIRECT_STOP that races the CONNECT below;
+            // startWarpDirect() manages its own service state.
+            _controller.value?.stop()
+            runCatching { ai.darshj.djproxy.ovpnengine.OvpnEngineGateway.controller?.stop() }
+
+            // DIRECT-TUN: the service establishes the tun + drives VpnRuntime itself — NO applyEngineConfig.
+            val direct = engine.startWarpDirect()
+            if (direct) {
+                _vpnGateConnecting.value = false
+                _uiState.value = _uiState.value.copy(validationError = null)
+                return@launch
+            }
+
+            // FALLBACK: userspace WARP → local SOCKS5 → the EXISTING VpnController.apply path.
+            LogBus.w("UI", "WARP direct-tun unavailable (${engine.lastFailure ?: "unknown"}) — falling back to SOCKS mode.")
             val cfg = engine.startWarp()
             _vpnGateConnecting.value = false
             if (cfg == null) {

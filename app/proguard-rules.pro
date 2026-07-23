@@ -35,6 +35,13 @@
 #     would crash with UnsatisfiedLinkError / NoSuchMethodError the instant the engine starts (same class
 #     of release-only fault the tor keep rules above fix). Keep both wholesale. ---
 -keep class ovpnsocks.** { *; }
+
+# --- ovpn3 lane (OpenVPN3 SWIG bindings, libovpn3.so): the native core UP-CALLS the generated
+#     ovpncliJNI.SwigDirector_* methods (C++ TunBuilder/event callbacks -> Java overrides) and the
+#     ovpncliJNI native methods BY NAME across JNI. R8 must not rename/strip any of net.openvpn.ovpn3,
+#     or a VPN Gate connect dies with "no static method ...SwigDirector_..._tun_builder_new".
+-keep class net.openvpn.ovpn3.** { *; }
+-keepclassmembers class net.openvpn.ovpn3.** { *; }
 -keep class go.** { *; }
 
 # Kotlin metadata for the coroutines/reflection used by the engine lane stays intact by default.

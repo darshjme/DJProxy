@@ -50,6 +50,16 @@ class Ovpn3VpnService : VpnService(), Ovpn3TunHost {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Satisfy the FGS obligation IMMEDIATELY. startForegroundService() (used for CONNECT) REQUIRES
+        // startForeground() within ~5s or the OS throws ForegroundServiceDidNotStartInTimeException — and
+        // a CONNECT can race a STOP (the controller stops sibling lanes before connecting). Calling this
+        // first for EVERY action guarantees the obligation is met before any teardown. Guarded.
+        runCatching {
+            enterForeground(
+                if (intent?.action == ACTION_STOP) "Disconnecting…"
+                else "Connecting to ${Ovpn3Runtime.pendingLabel}…",
+            )
+        }
         when (intent?.action) {
             ACTION_STOP -> { stopTunnel("stopped by user"); return START_NOT_STICKY }
             else -> {
@@ -57,7 +67,6 @@ class Ovpn3VpnService : VpnService(), Ovpn3TunHost {
                 if (ovpn.isNullOrBlank()) {
                     LogBus.e(TAG, "connect with no staged profile"); stopSelf(); return START_NOT_STICKY
                 }
-                enterForeground("Connecting to ${Ovpn3Runtime.pendingLabel}…")
                 startClient(ovpn)
             }
         }

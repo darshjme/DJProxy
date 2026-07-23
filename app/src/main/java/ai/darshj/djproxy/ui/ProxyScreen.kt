@@ -298,7 +298,9 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
                         // v9: Connect IN-APP — use the OpenVPN server as a proxy via the embedded engine,
                         // then show the connect orb on Home (mirrors tapping a normal proxy / Tor).
                         vpnGateServers.firstOrNull { it.key == row.id }?.let {
-                            viewModel.connectVpnGateEngine(it)
+                            // OpenVPN3 core (handles tls-auth/NCP/inline PKI) — replaces the minivpn SOCKS
+                            // lane that failed VPN Gate with "vpn connect: EOF".
+                            viewModel.connectVpnGateOvpn3(it)
                             route = Route.Home
                         }
                     },

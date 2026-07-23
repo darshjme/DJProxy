@@ -165,6 +165,24 @@
         </service>
 
         <!--
+          ovpn3 lane: the OFFICIAL OpenVPN3 core (libovpn3.so) drives the tun DIRECTLY for VPN Gate
+          OpenVPN servers — inline PKI + tls-auth/tls-crypt + NCP that minivpn couldn't do. Its OWN
+          VpnService (starting it implicitly revokes the proxy DjVpnService).
+        -->
+        <service
+            android:name=".ovpn3.Ovpn3VpnService"
+            android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:foregroundServiceType="specialUse">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="VPN Gate OpenVPN tunnel" />
+        </service>
+
+        <!--
           Native engine sidecar, isolated in its own :engine process so a native hev crash degrades
           fail-closed (routes held, nothing forwards) instead of leaking. Declaration contributed by
           the engine lane; the vpn lane owns this manifest. Implementation class: engine/EngineService.
@@ -325,6 +343,9 @@
                  Publishes WgEngineGateway.controller. -->
             <meta-data
                 android:name="ai.darshj.djproxy.wireguard.WgEngineRegistrar"
+                android:value="androidx.startup" />
+            <meta-data
+                android:name="ai.darshj.djproxy.ovpn3.Ovpn3EngineRegistrar"
                 android:value="androidx.startup" />
         </provider>
 

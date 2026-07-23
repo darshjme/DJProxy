@@ -979,6 +979,40 @@ class ProxyViewModel : ViewModel() {
         _vpnGateNoOpenVpnApp.value = false
     }
 
+    /**
+     * Bring a VPN Gate server up as a device-wide OpenVPN3 tunnel — the OFFICIAL OpenVPN3 core parses
+     * the `.ovpn` UNCHANGED (inline PKI + tls-auth/tls-crypt + NCP) and establishes DJProxy's tun
+     * DIRECTLY (no local SOCKS5 hop). This replaces the minivpn SOCKS lane that failed VPN Gate with
+     * `vpn connect: EOF`. Ovpn3VpnService drives VpnRuntime → CONNECTED, so the status card renders it;
+     * failure surfaces the verbatim OpenVPN3 reason.
+     */
+    fun connectVpnGateOvpn3(server: ai.darshj.djproxy.vpngate.VpnGateServer): Unit = vpnConsentGate {
+        lastConnect = { connectVpnGateOvpn3(server) }
+        val engine = ai.darshj.djproxy.ovpn3.Ovpn3EngineGateway.controller ?: run {
+            _uiState.value = _uiState.value.copy(
+                validationError = ProxyError.Io("The in-app OpenVPN3 engine isn't available in this build."),
+            )
+            return@vpnConsentGate
+        }
+        // Only one VpnService may be active: drop any proxy / SOCKS-engine / WG-direct tunnel first.
+        runCatching { ai.darshj.djproxy.ovpnengine.OvpnEngineGateway.controller?.stop() }
+        runCatching { ai.darshj.djproxy.wireguard.WgEngineGateway.controller?.stop() }
+        runCatching { _controller.value?.stop() }
+        viewModelScope.launch {
+            _vpnGateConnecting.value = true
+            _uiState.value = _uiState.value.copy(validationError = null)
+            val ok = engine.start(server.ovpn, "VPN Gate · ${server.countryLong.ifBlank { server.hostName }}")
+            _vpnGateConnecting.value = false
+            if (!ok) {
+                val why = engine.lastFailure ?: "the server did not complete the OpenVPN handshake"
+                _uiState.value = _uiState.value.copy(
+                    validationError = ProxyError.Io("Couldn't connect to ${server.hostName} — $why."),
+                )
+            }
+            // On success the tunnel is already device-wide; Ovpn3VpnService drove VpnRuntime → CONNECTED.
+        }
+    }
+
     // ---------------------------------------------------------------------------------------------
     // VPN Gate IN-APP connect — use the OpenVPN server AS a proxy via the embedded userspace engine
     // (ovpnengine lane: minivpn -> local SOCKS5 -> the EXISTING VpnController.apply path, like Tor).

@@ -22,3 +22,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "DJProxy"
 include(":app")
+include(":openvpn3")

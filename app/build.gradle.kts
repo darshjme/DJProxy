@@ -105,6 +105,10 @@ dependencies {
     // go-socks5, gomobile-bound). Lets a VPN Gate / OpenVPN server be used AS a proxy the existing hev
     // tunnel routes through — same shape as the embedded Tor lane. 4 ABIs, JNI .so inside the .aar.
     implementation(files("libs/ovpnsocks.aar"))
+    // ovpn3 lane: the OFFICIAL OpenVPN3 C++ core (ics-openvpn's vendored core → libovpn3.so +
+    // net.openvpn.ovpn3 SWIG bindings, GPL-2.0). Handles inline <ca>/<cert>/<key> + tls-auth/tls-crypt +
+    // NCP that minivpn lacked; establishes DJProxy's tun directly for VPN Gate OpenVPN servers.
+    implementation(project(":openvpn3"))
 
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.compose.ui:ui")
